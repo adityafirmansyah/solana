@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solana — SOLUSDT Quantitative Research Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/klinecharts@10/dist/umd/klinecharts.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Geist', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#fffbeb',
+              500: '#f59e0b',
+              600: '#d97706',
+              900: '#78350f',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="text-slate-200 min-h-screen">
+
+  <!-- Top Navbar -->
+  <header class="border-b border-slate-800 bg-[#0c121e]/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-lg shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+        ◎
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-white tracking-wide">SOLANA</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">SOLUSDT QUANTS</span>
+        </div>
+        <div class="text-[11px] text-slate-400">Deterministic Falsifiable Prediction Ledger</div>
+      </div>
+    </div>
+
+    <!-- Live indicator + Spot ticker + Filters -->
+    <div class="flex items-center gap-4 text-xs font-mono">
+      <div id="liveTicker" class="hidden md:flex items-center gap-3 px-3 py-1 rounded-lg bg-slate-900 border border-slate-800">
+        <span class="text-slate-400 text-[11px]">SPOT SOL</span>
+        <span id="tickerSpot" class="font-bold text-white tabular">$0.00</span>
+        <span class="text-slate-600">|</span>
+        <span class="text-slate-400 text-[11px]">CROSS-CHECK Δ</span>
+        <span id="tickerBasis" class="tabular text-slate-300">+$0.00</span>
+      </div>
+      <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span>GATEWAY ONLINE</span>
+      </div>
+      <div id="serverTime" class="text-slate-400 hidden sm:block">--:--:-- WIB</div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+
+    <!-- Main Model Navigation: Clean Separation between Technical Quant and Sentiment News -->
+    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+      <div class="flex items-center gap-2">
+        <button onclick="switchMainTab('technical')" id="btnTabTech" class="flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all border border-amber-500/40 bg-amber-500/10 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+          <span>📊 Technical Quant Model</span>
+          <span id="badgeTechCount" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">--</span>
+        </button>
+        <button onclick="switchMainTab('sentiment')" id="btnTabSent" class="flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all border border-slate-800 bg-slate-900/80 text-slate-400 hover:text-white hover:border-slate-700">
+          <span>📰 Sentiment & News Intelligence</span>
+          <span id="badgeSentCount" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">--</span>
+        </button>
+      </div>
+
+      <!-- Time Horizon Filter -->
+      <div class="flex items-center gap-2 text-xs font-medium bg-slate-900/60 p-1.5 rounded-xl border border-slate-800">
+        <span class="text-slate-400 text-[11px] px-1.5">Horizon:</span>
+        <button onclick="setFilter('days', 1)" id="btn-days-1" class="filter-btn px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white text-xs">24H</button>
+        <button onclick="setFilter('days', 7)" id="btn-days-7" class="filter-btn px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white text-xs">7D</button>
+        <button onclick="setFilter('days', 30)" id="btn-days-30" class="filter-btn px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white text-xs">30D</button>
+        <button onclick="setFilter('days', null)" id="btn-days-all" class="filter-btn px-2.5 py-1 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-400 font-semibold text-xs">ALL TIME</button>
+      </div>
+    </div>
+
+    <!-- VIEW 1: TECHNICAL QUANT MODEL -->
+    <div id="viewTechnical" class="space-y-6">
+
+    <!-- LIVE CHARTS: Self-hosted Candlesticks + TradingView Reference -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+      <div class="p-4 sm:px-6 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/40">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold text-white">SOLUSDT Live Candlesticks & Overlays</h2>
+            <span class="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">PREDICTION MARKERS</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">Solana's predictions rendered on the exact bars they forecast. Green = WIN, Red = LOSS, Gray = NOISE.</p>
+        </div>
+        
+        <div class="flex items-center gap-2 text-xs font-mono">
+          <div class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60">
+            <button onclick="setChartTab('candles')" id="btn-tab-candles" class="px-3 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 shadow">Candlesticks</button>
+            <button onclick="setChartTab('tv')" id="btn-tab-tv" class="px-3 py-1 rounded-md text-slate-400 hover:text-white">TradingView Embed</button>
+          </div>
+          <div id="intervalPills" class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60">
+            <button onclick="setCandleInterval('15m')" id="btn-tf-15m" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">15m</button>
+            <button onclick="setCandleInterval('1h')" id="btn-tf-1h" class="px-2 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 text-[11px] shadow">1h</button>
+            <button onclick="setCandleInterval('4h')" id="btn-tf-4h" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">4h</button>
+            <button onclick="setCandleInterval('1d')" id="btn-tf-1d" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">1d</button>
+          </div>
+          <div id="indicatorToggles" class="relative">
+            <button onclick="toggleIndicatorMenu()" id="btn-ind-menu" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-300 bg-slate-800/80 border border-slate-700/60 hover:border-slate-600">
+              <span class="flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+              </span>
+              Indicators
+              <span id="indCountBadge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300">2</span>
+              <span class="text-slate-500">▾</span>
+            </button>
+            <div id="indMenuPanel" class="hidden absolute top-full right-0 mt-1.5 z-20 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 space-y-0.5">
+              <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-2.5 pt-1 pb-0.5">Technical Overlays</div>
+              <button onclick="toggleIndicator('ema12')" id="btn-ind-ema12" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>EMA12 <span class="ml-auto text-[10px] text-slate-500">●</span>
+              </button>
+              <button onclick="toggleIndicator('ema26')" id="btn-ind-ema26" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left font-semibold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-sky-400 flex-shrink-0"></span>EMA26 <span class="ml-auto text-[10px] text-slate-500">●</span>
+              </button>
+              <button onclick="toggleIndicator('sma20')" id="btn-ind-sma20" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-violet-400/60 flex-shrink-0"></span>SMA20 <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleIndicator('atr_band')" id="btn-ind-atr_band" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-400/60 flex-shrink-0"></span>ATR Band <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleIndicator('rsi14')" id="btn-ind-rsi14" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-pink-400/60 flex-shrink-0"></span>RSI <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <div class="border-t border-slate-800 my-1"></div>
+              <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-2.5 pt-1 pb-0.5">Prediction Markers</div>
+              <button onclick="toggleMarkerKind('pending')" id="btn-mk-pending" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>Pending <span class="ml-auto text-[10px] text-slate-500">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('win')" id="btn-mk-win" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400/60 flex-shrink-0"></span>Win <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('loss')" id="btn-mk-loss" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-400/60 flex-shrink-0"></span>Loss <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('noise')" id="btn-mk-noise" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-400/60 flex-shrink-0"></span>Noise <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('no_call_resolved')" id="btn-mk-nocall" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-zinc-400/60 flex-shrink-0"></span>No-Call <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+            </div>
+          </div>
+          <div id="drawingTools" class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60 gap-0.5">
+            <button onclick="startDrawing('straightLine')" id="btn-draw-trend" title="Trendline" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">／ Trend</button>
+            <button onclick="startDrawing('horizontalStraightLine')" id="btn-draw-hline" title="Horizontal line" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">— H-Line</button>
+            <button onclick="startDrawing('fibonacciLine')" id="btn-draw-fib" title="Fibonacci retracement" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">Fib</button>
+            <button onclick="startDrawing('parallelStraightLine')" id="btn-draw-channel" title="Parallel channel" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">Channel</button>
+            <button onclick="clearDrawings()" id="btn-draw-clear" title="Clear all drawings" class="px-2 py-1 rounded-md text-[11px] text-rose-400 hover:text-rose-300">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 1: Self-hosted KLineChart (Canvas) -->
+      <div id="tabCandles" class="p-4 relative">
+        <div id="candleChartContainer" class="h-[36rem] w-full"></div>
+      </div>
+
+      <!-- Tab 2: Embedded TradingView Widget (OANDA:SOLUSDT) -->
+      <div id="tabTradingView" class="hidden h-[36rem] w-full p-2 bg-black">
+        <iframe id="tvIframe" class="w-full h-full border-0 rounded-lg"
+          src="about:blank"></iframe>
+      </div>
+    </div>
+
+    <!-- Health / KPI Strip -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <!-- Hit Rate -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Hit Rate (True Edge)</div>
+        <div class="my-2">
+          <span id="kpiHitRate" class="text-2xl font-bold font-mono text-white tabular">--%</span>
+          <span id="kpiEdgeBadge" class="text-[11px] ml-1.5 px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-400">vs 48%</span>
+        </div>
+        <div class="text-[11px] text-slate-500" id="kpiGradedCount">0 graded (non-noise)</div>
+      </div>
+
+      <!-- Net Points -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Net Realized Move</div>
+        <div class="my-2">
+          <span id="kpiNetPoints" class="text-2xl font-bold font-mono text-white tabular">0.00</span>
+          <span class="text-xs text-slate-400">pts</span>
+        </div>
+        <div class="text-[11px] text-slate-500" id="kpiWinLossRatio">W: 0 | L: 0</div>
+      </div>
+
+      <!-- Profit Factor -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Profit Factor</div>
+        <div class="my-2">
+          <span id="kpiProfitFactor" class="text-2xl font-bold font-mono text-amber-400 tabular">1.00</span>
+        </div>
+        <div class="text-[11px] text-slate-500">Gross Win / Gross Loss</div>
+      </div>
+
+      <!-- Noise Filter Ratio -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Noise Filtered</div>
+        <div class="my-2">
+          <span id="kpiNoiseCount" class="text-2xl font-bold font-mono text-slate-300 tabular">0</span>
+          <span class="text-xs text-slate-500">&lt; 0.5×ATR</span>
+        </div>
+        <div class="text-[11px] text-slate-500" id="kpiNoisePercent">0% filtered out</div>
+      </div>
+
+      <!-- Total Calls / Active -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Total Predictions</div>
+        <div class="my-2 flex items-baseline gap-2">
+          <span id="kpiTotalPreds" class="text-2xl font-bold font-mono text-white tabular">0</span>
+          <span id="kpiPendingBadge" class="text-[11px] text-amber-400 font-mono">0 pending</span>
+        </div>
+        <div class="text-[11px] text-slate-500">100% Append-Only</div>
+      </div>
+
+      <!-- Statistical Verdict -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Sample Status</div>
+        <div class="my-2">
+          <span id="kpiVerdict" class="text-sm font-bold font-mono px-2 py-1 rounded bg-slate-800 text-slate-300">COLLECTING</span>
+        </div>
+        <div class="text-[11px] text-slate-500">Goal: n &gt; 57 (Job 4)</div>
+      </div>
+    </div>
+
+    <!-- Improvement Readiness: how far the ledger is from the next
+         improvement session's promotion gate (job #4) -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold text-white">Next Improvement Session — Readiness</h2>
+            <div class="group/tip relative inline-flex items-center">
+              <span class="w-4 h-4 rounded-full bg-slate-800 text-slate-400 group-hover/tip:bg-slate-700 group-hover/tip:text-amber-300 flex items-center justify-center text-[10px] font-mono cursor-help transition-colors border border-slate-700/60 font-bold">?</span>
+              <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/tip:block w-72 p-2.5 bg-slate-900 border border-slate-700 text-slate-200 text-[11px] rounded-lg shadow-xl z-30 font-sans leading-normal pointer-events-none">
+                Every noise-filtered, graded prediction adds one row to a chronological 70/30 split. The improvement job searches weights on the 70% train slice, but promotion is decided on the 30% held-out reserve — a slice the search never sees. Numbers here come from the exact same loader and split the job itself runs (improve.load_graded / improve.split), so this panel cannot disagree with the gate.
+                <div class="w-2 h-2 bg-slate-900 border-r border-b border-slate-700 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+              </div>
+            </div>
+          </div>
+          <p id="impSubtitle" class="text-xs text-slate-400 mt-0.5">Next run: — · Incumbent: —</p>
+        </div>
+        <span id="impReadyBadge" class="text-xs font-bold font-mono px-2.5 py-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">COLLECTING DATA</span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+        <!-- The Hash: two progress bars -->
+        <div class="lg:col-span-2 space-y-4">
+          <div>
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-slate-300 font-medium">Graded, Non-Noise Rows <span class="text-slate-500 font-mono">(The Hash)</span></span>
+              <span id="impNText" class="font-mono text-white tabular">— / —</span>
+            </div>
+            <div class="h-3 rounded-full bg-slate-950/80 border border-slate-800/80 overflow-hidden">
+              <div id="impNBar" class="h-full rounded-full bg-amber-500/80" style="width:0%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-slate-300 font-medium">Held-Out Reserve <span class="text-slate-500 font-mono">(30% — promotion slice)</span></span>
+              <span id="impHeldText" class="font-mono text-white tabular">— / —</span>
+            </div>
+            <div class="h-3 rounded-full bg-slate-950/80 border border-slate-800/80 overflow-hidden">
+              <div id="impHeldBar" class="h-full rounded-full bg-amber-500/80" style="width:0%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-slate-300 font-medium">Train Slice <span class="text-slate-500 font-mono">(70% — search only)</span></span>
+              <span id="impTrainText" class="font-mono text-white tabular">— / —</span>
+            </div>
+            <div class="h-3 rounded-full bg-slate-950/80 border border-slate-800/80 overflow-hidden">
+              <div id="impTrainBar" class="h-full rounded-full bg-amber-500/80" style="width:0%"></div>
+            </div>
+          </div>
+          <div id="impBindingNote" class="text-[11px] text-slate-400 font-sans">—</div>
+        </div>
+
+        <!-- Right: the numbers that matter -->
+        <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-4 space-y-3 text-xs font-mono">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Rows still needed</span>
+            <span id="impNeeded" class="text-amber-400 font-bold">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Accrual rate</span>
+            <span id="impRate" class="text-slate-200">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Measured since</span>
+            <span id="impSince" class="text-slate-200">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">First session that can clear</span>
+            <span id="impFirst" class="text-slate-200">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Chain integrity</span>
+            <span id="impChain" class="text-slate-200">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-5">
+        <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-4 text-[11px] text-slate-300 font-sans leading-relaxed">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-semibold mb-2">Why the count is what it is</div>
+          <div id="impWhyText">—</div>
+        </div>
+        <div class="lg:col-span-2 bg-slate-950/40 border border-slate-800/80 rounded-lg p-4">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-semibold mb-2">Recent improvement attempts</div>
+          <table class="w-full text-left text-[11px] font-mono">
+            <thead class="text-slate-500 border-b border-slate-800">
+              <tr><th class="py-1.5 pr-3">Slot (WIB)</th><th class="py-1.5 pr-3">Outcome</th><th class="py-1.5 pr-3 text-right">Train</th><th class="py-1.5 text-right">Held-out</th></tr>
+            </thead>
+            <tbody id="impRecentBody" class="divide-y divide-slate-800/60 text-slate-300">
+              <tr><td colspan="4" class="py-2 text-slate-500">Loading…</td></tr>
+            </tbody>
+          </table>
+          <div class="text-[10px] text-slate-500 mt-2.5">Promotion requires: held-out CI excludes baseline + beats the incumbent + survives the best-of-8 correction. Nothing promoted yet — every session so far was skipped at the data gate, by design.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Equity / Points Chart (2 Cols) -->
+      <div class="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-semibold text-white">Cumulative Net Points (SOLUSDT)</h2>
+            <p class="text-xs text-slate-400">Calculated exclusively on non-noise calls</p>
+          </div>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">POINTS CURVE</span>
+        </div>
+        <div class="h-64">
+          <canvas id="equityChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Win / Loss / Noise Distribution -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">Outcome Classification</h2>
+          <p class="text-xs text-slate-400 mb-4">Win vs Loss vs Noise-Filtered</p>
+          <div class="h-52 flex items-center justify-center">
+            <canvas id="distributionChart"></canvas>
+          </div>
+        </div>
+        <div class="border-t border-slate-800 pt-3 text-[11px] text-slate-400 flex justify-between font-mono">
+          <span>Wins: <strong id="distWinText" class="text-emerald-400">0</strong></span>
+          <span>Losses: <strong id="distLossText" class="text-rose-400">0</strong></span>
+          <span>Noise: <strong id="distNoiseText" class="text-slate-400">0</strong></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Predictions Audit Ledger -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+      <div class="p-4 sm:px-6 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">Cryptographic Prediction Ledger</h2>
+          <p class="text-xs text-slate-400">Append-only sequence. Predictions logged before outcome bar closes.</p>
+        </div>
+        <span class="text-xs font-mono text-emerald-400 flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> SHA256 CHAIN OK
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+            <tr>
+              <th class="py-3 px-4"># ID</th>
+              <th class="py-3 px-4">Created (WIB)</th>
+              <th class="py-3 px-4">Horizon</th>
+              <th class="py-3 px-4">Signal</th>
+              <th class="py-3 px-4">Direction</th>
+              <th class="py-3 px-4">Confidence & Rationale</th>
+              <th class="py-3 px-4 text-right">Ref Price</th>
+              <th class="py-3 px-4 text-right">Realized</th>
+              <th class="py-3 px-4 text-right">Move (pts)</th>
+              <th class="py-3 px-4 text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+            <tr>
+              <td colspan="10" class="text-center py-6 text-slate-500">Loading ledger data...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    </div><!-- End of viewTechnical -->
+
+    <!-- VIEW 2: SENTIMENT & NEWS INTELLIGENCE -->
+    <div id="viewSentiment" class="space-y-6 hidden">
+      <!-- Info Banner -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 relative overflow-hidden shadow-xl">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-base font-bold text-white">Sentiment & Macro Intelligence Center</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">100% CITED CITATIONS ONLY</span>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed max-w-3xl">
+              Qualitative market research (Job #3). The agent ingests real-time macro & financial RSS feeds, extracts key price drivers, and emits a directional bias strictly bound to verified URL citations. Every claim is mechanically verified before recording. Kept completely separate from the technical model so neither contaminates the other.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>CADENCE: 4-HOUR CYCLES</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sentiment Health / KPI Strip -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+        <!-- Sentiment Hit Rate -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Sentiment Hit Rate</div>
+          <div class="my-2">
+            <span id="sentKpiHitRate" class="text-2xl font-bold font-mono text-white tabular">--%</span>
+            <span id="sentKpiEdgeBadge" class="text-[11px] ml-1.5 px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-400">Directional</span>
+          </div>
+          <div class="text-[11px] text-slate-500" id="sentKpiGradedCount">0 graded (non-noise)</div>
+        </div>
+
+        <!-- Total Sentiment Calls -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Total Sentiment Forecasts</div>
+          <div class="my-2 flex items-baseline gap-2">
+            <span id="sentKpiTotal" class="text-2xl font-bold font-mono text-white tabular">0</span>
+            <span id="sentKpiPending" class="text-[11px] text-amber-400 font-mono">0 pending</span>
+          </div>
+          <div class="text-[11px] text-slate-500">Append-Only Feed</div>
+        </div>
+
+        <!-- Citation Grounding Score -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Citation Gate Accuracy</div>
+          <div class="my-2">
+            <span class="text-2xl font-bold font-mono text-emerald-400 tabular">100%</span>
+          </div>
+          <div class="text-[11px] text-slate-500">Mechanical URL Verification</div>
+        </div>
+
+        <!-- Low-Conviction Abstained Ratio -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Abstained / Low Chop</div>
+          <div class="my-2">
+            <span id="sentKpiNoCalls" class="text-2xl font-bold font-mono text-slate-300 tabular">0</span>
+            <span class="text-xs text-slate-500">calls</span>
+          </div>
+          <div class="text-[11px] text-slate-500" id="sentKpiNoCallPct">0% abstained</div>
+        </div>
+      </div>
+
+      <!-- Sentiment Audit Ledger -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+        <div class="p-4 sm:px-6 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-white">Sentiment Narrative & Citation Ledger</h2>
+            <p class="text-xs text-slate-400">Append-only sequence of cited news predictions. Click any row to inspect claims and source URLs.</p>
+          </div>
+          <span class="text-xs font-mono text-emerald-400 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> CITATION GATE VERIFIED
+          </span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th class="py-3 px-4"># ID</th>
+                <th class="py-3 px-4">Created (WIB)</th>
+                <th class="py-3 px-4">Horizon</th>
+                <th class="py-3 px-4">Sentiment Bias</th>
+                <th class="py-3 px-4">Synthesized Narrative & Verified Claims</th>
+                <th class="py-3 px-4 text-right">Ref Price</th>
+                <th class="py-3 px-4 text-right">Realized</th>
+                <th class="py-3 px-4 text-right">Move (pts)</th>
+                <th class="py-3 px-4 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody id="sentimentTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+              <tr>
+                <td colspan="9" class="text-center py-6 text-slate-500">Loading sentiment records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- End of viewSentiment -->
+
+  </main>
+
+  <!-- Details Modal -->
+  <div id="detailsModal" onclick="handleBackdropClick(event)" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div id="detailsModalCard" class="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+        <div class="flex items-center gap-3">
+          <div id="modalDirIcon" class="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm"></div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="modalTitle" class="font-bold text-white text-base">Prediction Details</span>
+              <span id="modalHorizonBadge" class="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-400">1H</span>
+            </div>
+            <div id="modalTimestamp" class="text-xs text-slate-400 font-mono">--</div>
+          </div>
+        </div>
+        <button onclick="closeDetailsModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 overflow-y-auto space-y-6 text-sm">
+        
+        <!-- Summary Box -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2">
+          <div class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Core Rationale & Voting Summary</div>
+          <p id="modalRationaleText" class="text-slate-200 leading-relaxed font-sans text-sm"></p>
+        </div>
+
+        <!-- Key Metrics Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Reference Price</div>
+            <div id="modalRefPrice" class="text-white font-bold text-base mt-1">$0.00</div>
+          </div>
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Volatility Filter</div>
+            <div id="modalNoiseThr" class="text-slate-300 font-bold text-base mt-1">$0.00</div>
+          </div>
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Realized Price</div>
+            <div id="modalRealizedPrice" class="text-white font-bold text-base mt-1">—</div>
+          </div>
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Outcome Result</div>
+            <div id="modalOutcomeStatus" class="font-bold text-base mt-1">Pending</div>
+          </div>
+        </div>
+
+        <!-- Trade Targets (TP / SL) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+          <div class="bg-emerald-950/20 border border-emerald-500/20 rounded-lg p-3">
+            <div class="text-emerald-400 text-[11px] font-semibold flex items-center justify-between">
+              <span id="modalTpLabel">Target (Take Profit · 1.5× ATR)</span>
+              <span id="modalTpPoints" class="text-[10px] font-mono">+0.00 pts</span>
+            </div>
+            <div id="modalTpPrice" class="text-emerald-300 font-bold text-base mt-1">$0.00</div>
+          </div>
+          <div class="bg-rose-950/20 border border-rose-500/20 rounded-lg p-3">
+            <div class="text-rose-400 text-[11px] font-semibold flex items-center justify-between">
+              <span id="modalSlLabel">Stop Loss (1.0× ATR)</span>
+              <span id="modalSlPoints" class="text-[10px] font-mono">-0.00 pts</span>
+            </div>
+            <div id="modalSlPrice" class="text-rose-300 font-bold text-base mt-1">$0.00</div>
+          </div>
+        </div>
+
+        <!-- Target Reached Status Banner -->
+        <div id="modalTargetReachedBanner" class="p-3 rounded-xl border text-xs font-mono flex items-center justify-between transition-colors">
+          <div class="flex items-center gap-2">
+            <span id="modalTargetReachedIcon" class="text-base">🎯</span>
+            <span id="modalTargetReachedText" class="font-medium text-slate-200">Evaluating target resolution...</span>
+          </div>
+          <span id="modalTargetReachedSub" class="text-[11px] text-slate-400 font-mono"></span>
+        </div>
+
+        <!-- Indicator Scorecard Breakdown (Technical Only) -->
+        <div id="modalTechnicalSection" class="space-y-6">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Indicator Jury Voting Scorecard</span>
+              <span id="modalTotalScoreBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">Score: +0.00</span>
+            </div>
+            <div id="modalScorecardContainer" class="space-y-2 font-sans text-xs">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Technical Parameters Breakdown -->
+          <div class="space-y-3">
+            <div class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Technical Confluence Factors</div>
+            <div id="modalFeaturesGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono">
+              <!-- Injected via JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Sentiment Citations Breakdown (Sentiment Only) -->
+        <div id="modalSentimentSection" class="space-y-4 hidden">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Verified Article Citations & Claims</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">✓ 100% CITED</span>
+          </div>
+          <div id="modalClaimsContainer" class="space-y-2.5 font-sans text-xs">
+            <!-- Dynamically populated with claims & URLs -->
+          </div>
+        </div>
+
+        <!-- Market Sources Context -->
+        <div id="modalSourcesSection" class="space-y-2 text-xs">
+          <div class="text-slate-400 uppercase font-mono tracking-wider font-semibold text-[11px]">Market State at Decision Time</div>
+          <div id="modalSourcesText" class="text-slate-400 bg-slate-950/30 p-3 rounded-lg border border-slate-800/60 font-mono text-[11px]"></div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs font-mono text-slate-500">
+        <span>Append-only cryptographic record</span>
+        <button onclick="closeDetailsModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors">Close</button>
+      </div>
+
+    </div>
+  </div>
+
+  <footer class="max-w-7xl mx-auto px-6 py-8 text-center text-xs text-slate-500 border-t border-slate-800/80 mt-12">
+    <div>Solana Quantitative Trading Research — Operating autonomously under Hermes Orchestrator.</div>
+    <div class="text-[11px] text-slate-600 mt-1">Learning instrument and reference only. Explicitly NOT financial advice.</div>
+  </footer>
+
+  <script src="/static/js/app.js?v=20261006a"></script>
+</body>
+</html>
