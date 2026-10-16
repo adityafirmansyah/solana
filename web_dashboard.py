@@ -398,16 +398,16 @@ def get_live_price() -> dict:
     try:
         spot = fm.fetch_spot()
         cc = fm.fetch_cross_check()
-        btc = cc["btc_usd"]
+        cross = cc.get("sol_usd") or spot["price"]
         return {
             "ok": True,
             "spot": spot["price"],
             "updated_at": spot["updated_at"],
-            "cross_check": btc,
-            "basis": round(btc - spot["price"], 2),
-            "basis_pct": round((btc - spot["price"]) / spot["price"] * 100, 3),
+            "cross_check": cross,
+            "basis": round(cross - spot["price"], 2),
+            "basis_pct": round((cross - spot["price"]) / spot["price"] * 100, 3) if spot["price"] else 0.0,
         }
-    except (fm.FetchError, fm.SchemaError) as e:
+    except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
@@ -589,15 +589,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # API: /api/improvement - job #4 readiness (single source of truth:
         # the same load_graded/split the improvement job itself runs)
         if path == "/api/improvement":
-            self._json(get_improvement())
+            try:
+                self._json(get_improvement())
+            except Exception as e:
+                self._json({
+                    "ready": False,
+                    "n": 0,
+                    "need_n": 60,
+                    "rows_needed": 60,
+                    "held": {"have": 0, "need": 20},
+                    "train": {"have": 0, "need": 40},
+                    "next_run_wib": "N/A",
+                    "incumbent": "v0.1-event-driven-sol",
+                    "error": str(e),
+                })
             return
 
         # API: /api/stats
         if path == "/api/stats":
-            days = int(query["days"][0]) if "days" in query and query["days"][0].isdigit() else None
-            signal = query.get("signal", [None])[0]
-            data = get_stats_data(days=days, signal_source=signal)
-            self._json(data)
+            try:
+                days = int(query["days"][0]) if "days" in query and query["days"][0].isdigit() else None
+                signal = query.get("signal", [None])[0]
+                data = get_stats_data(days=days, signal_source=signal)
+                self._json(data)
+            except Exception as e:
+                self._json({"error": str(e), "kpis": {}, "recent_predictions": []})
             return
 
         # API: /api/candles

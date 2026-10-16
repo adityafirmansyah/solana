@@ -81,12 +81,27 @@ async function loadData() {
     let url = `/api/stats?signal=${currentFilter.signal}`;
     if (currentFilter.days) url += `&days=${currentFilter.days}`;
 
-    const [res, iRes] = await Promise.all([fetch(url), fetch('/api/improvement')]);
-    const data = await res.json();
-    renderDashboard(data);
-    if (iRes.ok) renderImprovement(await iRes.json());
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        renderDashboard(data);
+      }
+    } catch (err) {
+      console.error('Failed to load stats:', err);
+    }
+
+    try {
+      const iRes = await fetch('/api/improvement');
+      if (iRes.ok) {
+        const iData = await iRes.json();
+        renderImprovement(iData);
+      }
+    } catch (err) {
+      console.error('Failed to load improvement:', err);
+    }
   } catch (err) {
-    console.error('Failed to load stats:', err);
+    console.error('Failed in loadData:', err);
   }
 }
 
