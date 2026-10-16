@@ -306,7 +306,7 @@ def get_indicators(interval: str = "1h", limit: int = 300) -> dict:
     def series(vals):
         return [{"time": t, "value": round(v, 4)} for t, v in zip(times, vals) if v is not None]
 
-    atr_band = [{"time": t, "upper": round(c + a, 4), "lower": round(c - a, 4)}
+    atr_band = [{"time": t, "upper": round(c + a, 4), "lower": round(c - a, 4), "atr": round(a, 4)}
                 for t, c, a in zip(times, closes, atr14) if a is not None]
 
     return {
@@ -316,6 +316,7 @@ def get_indicators(interval: str = "1h", limit: int = 300) -> dict:
         "ema26": series(ema26),
         "sma20": series(sma20),
         "rsi14": series(rsi14),
+        "atr14": series(atr14),
         "atr_band": atr_band,
     }
 

@@ -1149,7 +1149,7 @@ function registerSatoshiIndicators() {
     calc: (kLineDataList) => {
       const series = (window.__solanaIndData && window.__solanaIndData.atr_band) || [];
       const byTime = {};
-      series.forEach(p => { byTime[p.time] = p.value; });
+      series.forEach(p => { byTime[p.time] = p; });
       return kLineDataList.map(k => {
         const p = byTime[Math.floor(k.timestamp / 1000)];
         return { upper: p ? p.upper : undefined, lower: p ? p.lower : undefined };
