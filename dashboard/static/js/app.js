@@ -9,9 +9,10 @@ let currentPredictions = [];
 let equityChart = null;
 let distributionChart = null;
 
-// KLineChart instance
+// KLineChart instance & multi-symbol state
 let candleChart = null;
 let currentInterval = '1h';
+let currentChartSymbol = 'SOLUSDT';
 let activeChartTab = 'candles';
 let candleRefreshTimer = null; // owned by subscribeBar/unsubscribeBar, never resetData()
 
@@ -266,6 +267,14 @@ function renderTechnicalView(data) {
   renderEquityChart(data.equity_curve);
   renderDistributionChart(winsCount, lossCount, k.noise_filtered);
 
+  // Auto-switch symbol to the latest active trade if available and not switched yet
+  if (!window.__hasUserSwitchedSymbol && data.active_trades && data.active_trades.length) {
+    const activeSym = data.active_trades[0].symbol;
+    if (activeSym && activeSym !== currentChartSymbol) {
+      setChartSymbol(activeSym);
+    }
+  }
+
   // Multi-coin stats & Active trades
   renderActiveTrades(data.active_trades);
   renderMultiCoinStats(data.by_symbol);
@@ -318,33 +327,33 @@ function renderActiveTrades(activeTrades) {
     const slStr = t.sl_price ? fmt(t.sl_price) : '--';
 
     return `
-      <div class="bg-slate-950/60 border border-slate-800 hover:border-amber-500/40 rounded-xl p-3.5 space-y-2 font-mono text-xs">
-        <div class="flex items-center justify-between">
+      <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-slate-700 transition-colors">
+        <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-1.5">
-            <span class="font-bold text-amber-300">${sym}</span>
-            <span class="text-[10px] text-slate-500">via ${leader}</span>
+            <button onclick="setChartSymbol('${sym}')" class="font-bold text-xs font-mono text-amber-300 hover:text-amber-200 hover:underline flex items-center gap-1" title="Click to view ${sym} chart">
+              ${sym} <span class="text-[10px] text-slate-500 font-normal">📈</span>
+            </button>
+            <span class="text-[10px] px-1.5 py-0.2 rounded border font-mono font-bold ${dirClass}">${t.direction.toUpperCase()}</span>
           </div>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${dirClass}">
-            ${isBull ? '🐂 BULL' : '🐻 BEAR'}
-          </span>
+          <span class="text-[10px] text-slate-500 font-mono">#${t.id} via ${leader}</span>
         </div>
-        <div class="grid grid-cols-3 gap-2 text-[11px] pt-1 border-t border-slate-900">
+        <div class="grid grid-cols-3 gap-2 font-mono text-xs my-1 bg-slate-900/60 p-2 rounded-lg border border-slate-800/60 text-center">
           <div>
-            <div class="text-[9px] text-slate-500">ENTRY REF</div>
-            <div class="text-white font-bold tabular">$${refStr}</div>
+            <div class="text-[9px] text-slate-500 uppercase">Entry</div>
+            <div class="text-white font-semibold text-[11px] mt-0.5">${refStr}</div>
           </div>
           <div>
-            <div class="text-[9px] text-emerald-400">TARGET (TP)</div>
-            <div class="text-emerald-300 font-bold tabular">$${tpStr}</div>
+            <div class="text-[9px] text-emerald-400 uppercase">Target (TP)</div>
+            <div class="text-emerald-300 font-semibold text-[11px] mt-0.5">${tpStr}</div>
           </div>
           <div>
-            <div class="text-[9px] text-rose-400">STOP (SL)</div>
-            <div class="text-rose-300 font-bold tabular">$${slStr}</div>
+            <div class="text-[9px] text-rose-400 uppercase">Stop Loss</div>
+            <div class="text-rose-300 font-semibold text-[11px] mt-0.5">${slStr}</div>
           </div>
         </div>
-        <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-900/60">
-          <span>#${t.id} · ${t.created_wib ? t.created_wib.slice(11, 19) : ''} WIB</span>
-          <span class="text-amber-400/90">${t.disparity_pct ? `Disparity: ${t.disparity_pct.toFixed(2)}%` : 'Lead-Lag'}</span>
+        <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono mt-1 pt-1.5 border-t border-slate-800/60">
+          <span>Disparity: <strong class="text-amber-400">${t.disparity_pct ? t.disparity_pct.toFixed(2) + '%' : '--'}</strong></span>
+          <button onclick="setChartSymbol('${sym}')" class="text-amber-400 hover:text-amber-300 text-[10px] font-semibold">View on Chart &rarr;</button>
         </div>
       </div>
     `;
@@ -512,7 +521,9 @@ function renderTable(predictions) {
       <tr class="hover:bg-slate-800/40 transition-colors cursor-pointer group" onclick="openDetailsModal(${p.id})">
         <td class="py-3 px-4 font-mono font-medium text-slate-400 group-hover:text-amber-400">#${p.id}</td>
         <td class="py-3 px-4 font-mono">
-          <span class="px-2 py-0.5 rounded font-bold text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20">${sym}</span>
+          <button onclick="setChartSymbol('${sym}')" class="px-2 py-0.5 rounded font-bold text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 hover:border-amber-400 cursor-pointer" title="Click to view ${sym} on chart">
+            ${sym} 📈
+          </button>
           ${leaderStr}
         </td>
         <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${p.created_wib.slice(5, 16)}</td>
@@ -989,6 +1000,42 @@ function setChartTab(tab) {
   }
 }
 
+function setChartSymbol(sym) {
+  window.__hasUserSwitchedSymbol = true;
+  currentChartSymbol = sym.toUpperCase();
+  
+  // Update header text
+  const titleEl = document.getElementById('mainChartTitle');
+  if (titleEl) titleEl.textContent = `${currentChartSymbol} Live Candlesticks & Overlays`;
+
+  // Update pills UI
+  ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT', 'SUIUSDT', 'NEARUSDT', 'DOGEUSDT', 'LINKUSDT'].forEach(s => {
+    const btn = document.getElementById(`btn-sym-${s}`);
+    if (btn) {
+      if (s === currentChartSymbol) {
+        btn.className = "px-2 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 text-[11px] shadow";
+      } else {
+        const isLeader = s === 'BTCUSDT' || s === 'ETHUSDT';
+        btn.className = `px-2 py-1 rounded-md text-[11px] ${isLeader ? 'text-amber-400/80 hover:text-amber-300 font-semibold' : 'text-slate-400 hover:text-white'}`;
+      }
+    }
+  });
+
+  // Update TradingView iframe if active
+  const tvIframe = document.getElementById('tvIframe');
+  if (tvIframe && activeChartTab === 'tv') {
+    tvIframe.src = `https://s.tradingview.com/widgetembed/?symbol=BINANCE%3A${currentChartSymbol}&interval=60&theme=dark&style=1&locale=en&hide_side_toolbar=1&allow_symbol_change=0&save_image=0`;
+  }
+
+  // Reload candles for this symbol
+  if (candleChart) {
+    candleChart.setSymbol({ ticker: currentChartSymbol });
+    fetchAndApplyBars((bars) => {
+      candleChart.applyNewData(bars);
+    });
+  }
+}
+
 function setCandleInterval(tf) {
   currentInterval = tf;
   ['15m', '1h', '4h', '1d'].forEach(t => {
@@ -1090,10 +1137,11 @@ function initCandleChart() {
 
 async function fetchAndApplyBars(initCallback, pushCallback) {
   try {
+    const sym = currentChartSymbol || 'SOLUSDT';
     const [cRes, mRes, iRes] = await Promise.all([
-      fetch(`/api/candles?interval=${currentInterval}&limit=300`),
-      fetch('/api/markers?signal=technical'),
-      fetch(`/api/indicators?interval=${currentInterval}&limit=300`),
+      fetch(`/api/candles?interval=${currentInterval}&limit=300&symbol=${sym}`),
+      fetch(`/api/markers?signal=technical&symbol=${sym}`),
+      fetch(`/api/indicators?interval=${currentInterval}&limit=300&symbol=${sym}`),
     ]);
     const cData = await cRes.json();
     const mData = await mRes.json();
@@ -1137,6 +1185,7 @@ function applyMarkers(mData) {
 
   const byBar = {};
   mData.markers.forEach(m => {
+    if (m.symbol && m.symbol !== currentChartSymbol) return;
     if (!m.target_bar_utc) return;
     if (!activeMarkerKinds[m.kind]) return;
 

@@ -383,8 +383,11 @@ def get_markers(signal_source: str | None = "technical", symbol: str | None = No
     where = []
     args = []
     if signal_source and signal_source != "all":
-        where.append("p.signal_source = ?")
-        args.append(signal_source)
+        if signal_source == "technical":
+            where.append("p.signal_source IN ('technical', 'lead_lag')")
+        else:
+            where.append("p.signal_source = ?")
+            args.append(signal_source)
     if symbol and symbol != "all":
         where.append("p.symbol = ?")
         args.append(symbol)

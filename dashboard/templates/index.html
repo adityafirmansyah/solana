@@ -100,13 +100,25 @@
       <div class="p-4 sm:px-6 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/40">
         <div>
           <div class="flex items-center gap-2">
-            <h2 class="text-sm font-semibold text-white">SOLUSDT Live Candlesticks & Overlays</h2>
+            <h2 id="mainChartTitle" class="text-sm font-semibold text-white">SOLUSDT Live Candlesticks & Overlays</h2>
             <span class="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">PREDICTION MARKERS</span>
           </div>
-          <p class="text-xs text-slate-400 mt-0.5">Solana's predictions rendered on the exact bars they forecast. Green = WIN, Red = LOSS, Gray = NOISE.</p>
+          <p class="text-xs text-slate-400 mt-0.5">Switch symbols to view Leader impulses and Follower trade barriers (TP/SL). Green = WIN, Red = LOSS, Amber = PENDING.</p>
         </div>
         
-        <div class="flex items-center gap-2 text-xs font-mono">
+        <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+          <!-- Multi-Coin Switcher Pills -->
+          <div id="symbolPills" class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60 overflow-x-auto">
+            <button onclick="setChartSymbol('BTCUSDT')" id="btn-sym-BTCUSDT" class="px-2 py-1 rounded-md text-amber-400/80 hover:text-amber-300 text-[11px] font-semibold">👑 BTC</button>
+            <button onclick="setChartSymbol('ETHUSDT')" id="btn-sym-ETHUSDT" class="px-2 py-1 rounded-md text-amber-400/80 hover:text-amber-300 text-[11px] font-semibold">👑 ETH</button>
+            <span class="text-slate-600 px-1">|</span>
+            <button onclick="setChartSymbol('SOLUSDT')" id="btn-sym-SOLUSDT" class="px-2 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 text-[11px] shadow">SOL</button>
+            <button onclick="setChartSymbol('AVAXUSDT')" id="btn-sym-AVAXUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">AVAX</button>
+            <button onclick="setChartSymbol('SUIUSDT')" id="btn-sym-SUIUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">SUI</button>
+            <button onclick="setChartSymbol('NEARUSDT')" id="btn-sym-NEARUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">NEAR</button>
+            <button onclick="setChartSymbol('DOGEUSDT')" id="btn-sym-DOGEUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">DOGE</button>
+            <button onclick="setChartSymbol('LINKUSDT')" id="btn-sym-LINKUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">LINK</button>
+          </div>
           <div class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60">
             <button onclick="setChartTab('candles')" id="btn-tab-candles" class="px-3 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 shadow">Candlesticks</button>
             <button onclick="setChartTab('tv')" id="btn-tab-tv" class="px-3 py-1 rounded-md text-slate-400 hover:text-white">TradingView Embed</button>
@@ -425,10 +437,10 @@
       <div class="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-xl p-5">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h2 class="text-sm font-semibold text-white">Cumulative Net Points (SOLUSDT)</h2>
-            <p class="text-xs text-slate-400">Calculated exclusively on non-noise calls</p>
+            <h2 class="text-sm font-semibold text-white">Cumulative Net Performance (R-Multiple & Points)</h2>
+            <p class="text-xs text-slate-400">Cumulative portfolio return across all traded crypto assets (calculated on non-noise calls)</p>
           </div>
-          <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">POINTS CURVE</span>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">EQUITY CURVE</span>
         </div>
         <div class="h-64">
           <canvas id="equityChart"></canvas>
