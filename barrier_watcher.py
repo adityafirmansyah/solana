@@ -754,7 +754,7 @@ class MultiCoinLeadLagWatcher:
 
             # Disparity: impulse minus realized move
             disparity = abs_btc_move - max(0.0, realized_dir_move)
-            if disparity < 0.07:
+            if disparity < 0.04:
                 continue
 
             atr = self.baselines[follower].get("atr") or (f_now * 0.005)
@@ -867,6 +867,35 @@ class MultiCoinLeadLagWatcher:
         # ====================================================================
         # FSM State Transitions
         # ====================================================================
+
+        # --------------------------------------------------------------------
+        # FAST-PATH INTERRUPT: Sub-Second Order Flow Burst Trigger (3-5s window)
+        # Bypasses 20-30s lag when sudden aggressive institutional market sweep occurs
+        # --------------------------------------------------------------------
+        if len(btc_hist) >= 5:
+            w5_btc = btc_hist[-5:]
+            vol_5s = sum(x["vol"] for x in w5_btc)
+            baseline_5s_btc = max(1e-6, baseline_1s_btc * 5.0)
+            vol_ratio_5s = vol_5s / baseline_5s_btc
+            taker_buy_5s = sum(x.get("taker_buy_vol", 0.0) for x in w5_btc)
+            taker_ratio_5s = (taker_buy_5s / vol_5s) if vol_5s > 0 else 0.50
+
+            btc_5s_move_pct = (w5_btc[-1]["close"] - w5_btc[0]["open"]) / w5_btc[0]["open"] * 100.0
+            abs_btc_5s = abs(btc_5s_move_pct)
+
+            # Burst criteria: Volume >= 4.5x baseline in 5s with sharp delta sweep (>75% taker buy or <25% taker sell)
+            # and price impulse >= 0.07%
+            is_burst_bull = (vol_ratio_5s >= 4.5 and taker_ratio_5s >= 0.75 and btc_5s_move_pct >= 0.07)
+            is_burst_bear = (vol_ratio_5s >= 4.5 and taker_ratio_5s <= 0.25 and btc_5s_move_pct <= -0.07)
+
+            if is_burst_bull or is_burst_bear:
+                burst_dir = "bullish" if is_burst_bull else "bearish"
+                logger.info(f"⚡ FAST-PATH BURST DETECTED! Dir={burst_dir.upper()}, Vol={vol_ratio_5s:.1f}x (5s), Move={btc_5s_move_pct:+.3f}%, Taker={taker_ratio_5s*100:.1f}%")
+                candidate = self.find_best_lagging_follower(burst_dir, abs_btc_5s, btc_5s_move_pct, vol_ratio_5s)
+                if candidate:
+                    logger.info(f"🚀 FAST-PATH BURST SNIPING FOLLOWER: {candidate['follower']} (Disparity: {candidate['disparity']:.3f}%)")
+                    self.execute_state_4(candidate)
+                    return
 
         # Path to State 4: DISPARITY_EXECUTION
         # (Can fire from ARMED_VELOCITY or directly when strong impulse sweep occurs)
