@@ -517,6 +517,16 @@ function renderTable(predictions) {
     const sym = p.symbol || 'SOLUSDT';
     const leaderStr = p.leader_symbol ? `<span class="text-[9px] text-slate-500 block">via ${p.leader_symbol}</span>` : '';
 
+    let tpPrice = p.target_price;
+    let slPrice = p.sl_price;
+    if (!tpPrice || !slPrice) {
+      try {
+        const inp = JSON.parse(p.inputs_json || '{}');
+        tpPrice = inp.target_tp_price || inp.tp_price;
+        slPrice = inp.stop_loss_price || inp.sl_price;
+      } catch(e) {}
+    }
+
     return `
       <tr class="hover:bg-slate-800/40 transition-colors cursor-pointer group" onclick="openDetailsModal(${p.id})">
         <td class="py-3 px-4 font-mono font-medium text-slate-400 group-hover:text-amber-400">#${p.id}</td>
@@ -527,8 +537,6 @@ function renderTable(predictions) {
           ${leaderStr}
         </td>
         <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${p.created_wib.slice(5, 16)}</td>
-        <td class="py-3 px-4 font-mono text-slate-400">${p.horizon}</td>
-        <td class="py-3 px-4 text-slate-400">${p.signal_source}</td>
         <td class="py-3 px-4">${dirBadge}</td>
         <td class="py-3 px-4">
           <div class="flex flex-col gap-1">
@@ -543,8 +551,10 @@ function renderTable(predictions) {
             <div class="text-[11px] text-slate-400 truncate max-w-xs group-hover:text-slate-300" title="${reasonSummary}">${reasonSummary}</div>
           </div>
         </td>
-        <td class="py-3 px-4 text-right font-mono tabular">${fmtPrice(p.ref_price)}</td>
-        <td class="py-3 px-4 text-right font-mono tabular text-white">${fmtPrice(p.realized_price)}</td>
+        <td class="py-3 px-4 text-right font-mono tabular font-medium text-white">${fmtPrice(p.ref_price)}</td>
+        <td class="py-3 px-4 text-right font-mono tabular text-emerald-400">${fmtPrice(tpPrice)}</td>
+        <td class="py-3 px-4 text-right font-mono tabular text-rose-400">${fmtPrice(slPrice)}</td>
+        <td class="py-3 px-4 text-right font-mono tabular text-slate-200">${fmtPrice(p.realized_price)}</td>
         <td class="py-3 px-4 text-right font-mono tabular font-medium ${moveColor}">${moveText}</td>
         <td class="py-3 px-4 text-center whitespace-nowrap">${statusBadge}${targetBadge}</td>
       </tr>
