@@ -340,7 +340,22 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
 
         base = get_latest_base_rate(con)
         is_noise = False
-        correct = 1 if exit_reason == "tp_hit" else (0 if exit_reason == "sl_hit" else None)
+
+        # Correct determination:
+        # 1. TP hit -> 1 (WIN)
+        # 2. SL hit -> 0 (LOSS)
+        # 3. TimeStop expired -> evaluated strictly against entry price:
+        #    Bullish & exit > ref -> 1 (WIN)
+        #    Bearish & exit < ref -> 1 (WIN)
+        #    Otherwise -> 0 (LOSS)
+        if exit_reason == "tp_hit":
+            correct = 1
+        elif exit_reason == "sl_hit":
+            correct = 0
+        else:
+            # Time-stop expiration: grade based on realized direction vs predicted direction
+            pnl_move = move if direction == "bullish" else -move
+            correct = 1 if pnl_move > 0 else 0
 
         ledger.record_outcome(
             con,
@@ -392,10 +407,13 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
             event_name = "RESOLUTION_SL (Stop Loss Cut)"
             outcome_text = f"{symbol} hit Stop Loss di {format_price(exit_price, symbol)} ({pnl_pct:+.2f}%). Order flow berbalik arah."
         else:
-            title = f"⏰ **TIME STOP EXPIRED (Flat Cut)** · **{symbol}** (Leader: `{leader}`)"
-            res_line = "⏱️ **FLAT CUT** (Max 2h holding elapsed)"
-            event_name = "RESOLUTION_TIMESTOP (Flat Cut)"
-            outcome_text = f"{symbol} time stop 2 jam habis di {format_price(exit_price, symbol)} ({pnl_pct:+.2f}%). Volatilitas mereda."
+            is_expired_win = pnl_pts > 0
+            res_emoji = "✅" if is_expired_win else "❌"
+            res_label = "WIN (Target Profit on Expiry)" if is_expired_win else "LOSS (Negative Move on Expiry)"
+            title = f"⏰ **TIME STOP EXPIRED** · **{symbol}** (Leader: `{leader}`)"
+            res_line = f"{res_emoji} **{res_label}** ({pnl_pct:+.2f}%)"
+            event_name = "RESOLUTION_TIMESTOP (Expired Resolution)"
+            outcome_text = f"{symbol} time stop 2 jam habis di {format_price(exit_price, symbol)} ({pnl_pct:+.2f}%). Posisi di-grade sebagai {'WIN' if is_expired_win else 'LOSS'}."
 
         details = (
             f"Prediction #{pid} ({symbol} {direction.upper()} via {leader}) selesai: {outcome_text} "

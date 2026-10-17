@@ -470,7 +470,13 @@ function renderTable(predictions) {
         statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">WIN</span>';
       } else if (p.correct === 0) {
         statusBadge = '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold border border-rose-500/30">LOSS</span>';
-      } else if (p.correct === null && !p.is_noise) {
+      } else if (p.move !== null) {
+        // Fallback if correct is NULL but has realized move: grade by directional PnL
+        const pnl = p.direction === 'bullish' ? p.move : -p.move;
+        statusBadge = pnl > 0 
+          ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">WIN</span>'
+          : '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold border border-rose-500/30">LOSS</span>';
+      } else {
         statusBadge = '<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">NO-CALL</span>';
       }
     } else if (p.direction === 'no_call') {
