@@ -107,17 +107,25 @@
         </div>
         
         <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
-          <!-- Multi-Coin Switcher Pills -->
-          <div id="symbolPills" class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60 overflow-x-auto">
-            <button onclick="setChartSymbol('BTCUSDT')" id="btn-sym-BTCUSDT" class="px-2 py-1 rounded-md text-amber-400/80 hover:text-amber-300 text-[11px] font-semibold">👑 BTC</button>
-            <button onclick="setChartSymbol('ETHUSDT')" id="btn-sym-ETHUSDT" class="px-2 py-1 rounded-md text-amber-400/80 hover:text-amber-300 text-[11px] font-semibold">👑 ETH</button>
-            <span class="text-slate-600 px-1">|</span>
-            <button onclick="setChartSymbol('SOLUSDT')" id="btn-sym-SOLUSDT" class="px-2 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 text-[11px] shadow">SOL</button>
-            <button onclick="setChartSymbol('AVAXUSDT')" id="btn-sym-AVAXUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">AVAX</button>
-            <button onclick="setChartSymbol('SUIUSDT')" id="btn-sym-SUIUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">SUI</button>
-            <button onclick="setChartSymbol('NEARUSDT')" id="btn-sym-NEARUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">NEAR</button>
-            <button onclick="setChartSymbol('DOGEUSDT')" id="btn-sym-DOGEUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">DOGE</button>
-            <button onclick="setChartSymbol('LINKUSDT')" id="btn-sym-LINKUSDT" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">LINK</button>
+          <!-- Multi-Coin Dropdown Selector -->
+          <div class="relative inline-flex items-center">
+            <label for="coinSelect" class="text-[11px] text-slate-400 mr-1.5 flex items-center gap-1">
+              <span>Pair:</span>
+            </label>
+            <select id="coinSelect" onchange="setChartSymbol(this.value)" class="bg-slate-800/90 text-amber-300 font-semibold text-xs rounded-lg border border-slate-700/80 px-2.5 py-1 focus:outline-none focus:border-amber-400 cursor-pointer shadow-sm">
+              <optgroup label="👑 Leaders">
+                <option value="BTCUSDT">👑 BTC/USDT</option>
+                <option value="ETHUSDT">👑 ETH/USDT</option>
+              </optgroup>
+              <optgroup label="⚡ Followers">
+                <option value="SOLUSDT" selected>SOL/USDT</option>
+                <option value="AVAXUSDT">AVAX/USDT</option>
+                <option value="SUIUSDT">SUI/USDT</option>
+                <option value="NEARUSDT">NEAR/USDT</option>
+                <option value="DOGEUSDT">DOGE/USDT</option>
+                <option value="LINKUSDT">LINK/USDT</option>
+              </optgroup>
+            </select>
           </div>
           <div class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60">
             <button onclick="setChartTab('candles')" id="btn-tab-candles" class="px-3 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 shadow">Candlesticks</button>

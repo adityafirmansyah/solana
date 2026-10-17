@@ -1008,18 +1008,11 @@ function setChartSymbol(sym) {
   const titleEl = document.getElementById('mainChartTitle');
   if (titleEl) titleEl.textContent = `${currentChartSymbol} Live Candlesticks & Overlays`;
 
-  // Update pills UI
-  ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT', 'SUIUSDT', 'NEARUSDT', 'DOGEUSDT', 'LINKUSDT'].forEach(s => {
-    const btn = document.getElementById(`btn-sym-${s}`);
-    if (btn) {
-      if (s === currentChartSymbol) {
-        btn.className = "px-2 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 text-[11px] shadow";
-      } else {
-        const isLeader = s === 'BTCUSDT' || s === 'ETHUSDT';
-        btn.className = `px-2 py-1 rounded-md text-[11px] ${isLeader ? 'text-amber-400/80 hover:text-amber-300 font-semibold' : 'text-slate-400 hover:text-white'}`;
-      }
-    }
-  });
+  // Update select dropdown value
+  const sel = document.getElementById('coinSelect');
+  if (sel && sel.value !== currentChartSymbol) {
+    sel.value = currentChartSymbol;
+  }
 
   // Update TradingView iframe if active
   const tvIframe = document.getElementById('tvIframe');
