@@ -184,7 +184,8 @@ function renderDashboard(data) {
   if (data.signal_counts) {
     const techBadge = document.getElementById('badgeTechCount');
     const sentBadge = document.getElementById('badgeSentCount');
-    if (techBadge) techBadge.textContent = data.signal_counts.technical || 0;
+    const totalTech = (data.signal_counts.technical || 0) + (data.signal_counts.lead_lag || 0);
+    if (techBadge) techBadge.textContent = totalTech;
     if (sentBadge) sentBadge.textContent = data.signal_counts.sentiment || 0;
   }
 

@@ -79,10 +79,14 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
         args_p.append(cutoff)
 
     if signal_source and signal_source != "all":
-        where.append("p.signal_source = ?")
-        where_p.append("p.signal_source = ?")
-        args.append(signal_source)
-        args_p.append(signal_source)
+        if signal_source == "technical":
+            where.append("p.signal_source IN ('technical', 'lead_lag')")
+            where_p.append("p.signal_source IN ('technical', 'lead_lag')")
+        else:
+            where.append("p.signal_source = ?")
+            where_p.append("p.signal_source = ?")
+            args.append(signal_source)
+            args_p.append(signal_source)
 
     sql = f"""
         SELECT 
