@@ -74,6 +74,9 @@ DISPARITY_IMPULSE_MIN_PCT = 0.12      # Leader breakout impulse >= 0.12% - 0.15%
 FOLLOWER_LAG_MAX_PCT = 0.05           # Lagging follower moved < 0.05%
 STATE_3_TTL_SECS = 45.0               # ARMED_VELOCITY timeout (45s TTL)
 FOLLOWER_COOLDOWN_SECS = 900.0        # 15 minutes cooldown per follower symbol
+GLOBAL_CLUSTER_COOLDOWN_SECS = 180.0   # 3 minutes cooldown across ANY follower to prevent cluster cascade
+MAX_CONCURRENT_SAME_DIR_TRADES = 1     # Max 1 active trade per direction across all followers
+EXHAUSTION_BTC_60S_MOVE_PCT = 0.25    # BTC already moved >= 0.25% in 60s -> climax/exhaustion guard
 MAX_HOLDING_SECS = 7200.0             # 2 hours max holding time-stop
 
 # Notification Cooldown / Debounce guards
@@ -592,6 +595,7 @@ class MultiCoinLeadLagWatcher:
             **{s: deque(maxlen=120) for s in FOLLOWERS}
         }
         self.last_trigger_ts: dict[str, float] = {s: 0.0 for s in FOLLOWERS}
+        self.last_global_trigger_ts: float = 0.0
         self.baselines: dict[str, dict] = {
             s: {"atr": 0.0, "baseline_1s_vol": 10.0} for s in ALL_SYMBOLS
         }
@@ -741,6 +745,44 @@ class MultiCoinLeadLagWatcher:
 
     def find_best_lagging_follower(self, direction: str, abs_btc_move: float, btc_move_pct: float, vol_ratio: float) -> dict | None:
         now_ts = time.time()
+
+        # 1. Global Cluster Cooldown Guard: at least 3 minutes between ANY follower trade triggers
+        if (now_ts - self.last_global_trigger_ts) < GLOBAL_CLUSTER_COOLDOWN_SECS:
+            elapsed = int(now_ts - self.last_global_trigger_ts)
+            logger.info(
+                f"Cluster cooldown active ({elapsed}s < {int(GLOBAL_CLUSTER_COOLDOWN_SECS)}s). Skipping candidate search."
+            )
+            return None
+
+        # 2. Directional Cluster Concurrency Guard: max 1 active trade in same direction
+        active_same_dir = [t for t in self.active_trades.values() if t.get("direction") == direction]
+        if len(active_same_dir) >= MAX_CONCURRENT_SAME_DIR_TRADES:
+            symbols = [t.get("symbol") for t in active_same_dir]
+            logger.info(
+                f"Max concurrent {direction.upper()} trades active ({len(active_same_dir)}/{MAX_CONCURRENT_SAME_DIR_TRADES}): {symbols}. Skipping."
+            )
+            return None
+
+        # 3. Climax / Exhaustion Guard on Leader (BTC)
+        btc_hist = list(self.rolling_1s["BTCUSDT"])
+        if len(btc_hist) >= 30:
+            window_len = min(len(btc_hist), 60)
+            w_ex = btc_hist[-window_len:]
+            if w_ex[0]["open"] > 0:
+                btc_ex_move_pct = (w_ex[-1]["close"] - w_ex[0]["open"]) / w_ex[0]["open"] * 100.0
+                if direction == "bullish" and btc_ex_move_pct >= EXHAUSTION_BTC_60S_MOVE_PCT:
+                    logger.warning(
+                        f"⚠️ Exhaustion Guard BLOCKED BULLISH entry: BTC already pumped {btc_ex_move_pct:+.2f}% in {window_len}s "
+                        f"(Threshold >= +{EXHAUSTION_BTC_60S_MOVE_PCT:.2f}%). Climax risk."
+                    )
+                    return None
+                elif direction == "bearish" and btc_ex_move_pct <= -EXHAUSTION_BTC_60S_MOVE_PCT:
+                    logger.warning(
+                        f"⚠️ Exhaustion Guard BLOCKED BEARISH entry: BTC already dumped {btc_ex_move_pct:+.2f}% in {window_len}s "
+                        f"(Threshold <= -{EXHAUSTION_BTC_60S_MOVE_PCT:.2f}%). Climax/absorption risk."
+                    )
+                    return None
+
         candidates = []
         for follower in FOLLOWERS:
             # Slot guard: max 1 active trade per follower symbol
@@ -798,7 +840,9 @@ class MultiCoinLeadLagWatcher:
         self.state = EngineState.DISPARITY_EXECUTION
         self.state_entered_ts = time.time()
         follower = opp["follower"]
-        self.last_trigger_ts[follower] = time.time()
+        now_ts = time.time()
+        self.last_trigger_ts[follower] = now_ts
+        self.last_global_trigger_ts = now_ts
         logger.info(
             f"⚡ FSM State 4 (DISPARITY_EXECUTION): {opp['leader']} {opp['direction']} {opp['leader_move_pct']:+.2f}% "
             f"➔ {follower} lag (disparity: {opp['disparity']:.2f}%)"
