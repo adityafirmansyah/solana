@@ -86,7 +86,7 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
 
     sql = f"""
         SELECT 
-            p.id, p.created_wib, p.created_utc, p.horizon, p.direction, p.confidence,
+            p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.horizon, p.direction, p.confidence,
             p.signal_source, p.ref_price, p.noise_threshold,
             o.graded_wib, o.graded_utc, o.realized_price, o.move, o.move_pct,
             o.realized_dir, o.is_noise, o.correct, o.base_rate, o.row_hash
@@ -130,6 +130,51 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
     avg_base_rate = round(sum(r["base_rate"] for r in rows) / len(rows) * 100, 2) if rows else 48.0
     edge_pp = round(hit_rate - avg_base_rate, 2) if hit_rate is not None else None
 
+    # Multi-coin stats breakdown
+    by_symbol = {}
+    for s in ["SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]:
+        s_rows = [r for r in rows if (r.get("symbol") or "SOLUSDT") == s]
+        s_graded = [r for r in s_rows if r["is_noise"] == 0 and r["correct"] is not None]
+        s_wins = [r for r in s_graded if r["correct"] == 1]
+        s_losses = [r for r in s_graded if r["correct"] == 0]
+        s_pts = round(sum(r["move"] * (1 if r["direction"] == "bullish" else -1) for r in s_graded), 4)
+        by_symbol[s] = {
+            "total": len(s_rows),
+            "graded": len(s_graded),
+            "wins": len(s_wins),
+            "losses": len(s_losses),
+            "win_rate": round(len(s_wins) / len(s_graded) * 100, 1) if s_graded else None,
+            "net_points": s_pts,
+        }
+
+    # Fetch active trades
+    active_trades = []
+    act_sql = """
+        SELECT p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.direction,
+               p.ref_price, p.confidence, p.horizon, p.signal_source, p.notes,
+               p.inputs_json, p.features_json
+        FROM predictions p
+        LEFT JOIN outcomes o ON o.prediction_id = p.id
+        WHERE o.prediction_id IS NULL AND p.direction IN ('bullish', 'bearish')
+        ORDER BY p.id DESC
+    """
+    for r in con.execute(act_sql).fetchall():
+        d = dict(r)
+        d["symbol"] = d.get("symbol") or "SOLUSDT"
+        d["leader_symbol"] = d.get("leader_symbol") or "BTCUSDT"
+        try:
+            inputs = json.loads(d.get("inputs_json") or "{}")
+        except Exception:
+            inputs = {}
+        try:
+            features = json.loads(d.get("features_json") or "{}")
+        except Exception:
+            features = {}
+        d["tp_price"] = inputs.get("target_tp_price") or inputs.get("tp_price")
+        d["sl_price"] = inputs.get("stop_loss_price") or inputs.get("sl_price")
+        d["disparity_pct"] = features.get("disparity_pct")
+        active_trades.append(d)
+
     cum_pts = 0.0
     equity_series = []
     for r in graded_non_noise:
@@ -137,6 +182,7 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
         cum_pts += pts
         equity_series.append({
             "id": r["id"],
+            "symbol": r.get("symbol") or "SOLUSDT",
             "time": r["graded_wib"][:16],
             "points": round(cum_pts, 2),
             "move": round(pts, 2),
@@ -146,7 +192,7 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
     recent_where = f"WHERE {' AND '.join(where_p)}" if where_p else ""
     recent_sql = f"""
         SELECT 
-            p.id, p.created_wib, p.created_utc, p.target_bar_utc, p.horizon, p.direction, p.confidence, p.ref_price, 
+            p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.target_bar_utc, p.horizon, p.direction, p.confidence, p.ref_price, 
             p.noise_threshold, p.signal_source, p.notes, p.features_json, p.inputs_json,
             p.params_json,
             o.graded_wib, o.realized_price, o.move, o.is_noise, o.correct, o.base_rate,
@@ -160,6 +206,8 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
     """
     recent_rows = [dict(r) for r in con.execute(recent_sql, args_p).fetchall()]
     for r in recent_rows:
+        r["symbol"] = r.get("symbol") or "SOLUSDT"
+        r["leader_symbol"] = r.get("leader_symbol") or "BTCUSDT"
         r["contributions"] = _contributions_for_row(r)
         score = sum(r["contributions"].values()) if r.get("contributions") else (r.get("confidence") or 0.0)
         if r.get("direction") == "bearish" and score > 0:
@@ -187,6 +235,8 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
             "gross_loss_pts": round(gross_loss_pts, 2),
             "verdict": "SIGNIFICANT" if (edge_pp and edge_pp > 3.0 and n_graded > 30) else ("COLLECTING_DATA" if n_graded < 30 else "NOT_SIGNIFICANT")
         },
+        "by_symbol": by_symbol,
+        "active_trades": active_trades,
         "signal_counts": sig_counts,
         "equity_curve": equity_series,
         "recent_predictions": recent_rows,
@@ -195,7 +245,7 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
     }
 
 
-def get_candles(interval: str = "1h", limit: int = 300) -> dict:
+def get_candles(interval: str = "1h", limit: int = 300, symbol: str = "SOLUSDT") -> dict:
     """OHLCV bars for the self-hosted candlestick chart.
 
     Data comes from the SAME feed Solana predicts on (SOLUSDT direct, no
@@ -209,16 +259,17 @@ def get_candles(interval: str = "1h", limit: int = 300) -> dict:
     if interval not in allowed:
         interval = "1h"
     limit = max(60, min(int(limit or 300), 1000))
+    sym = (symbol or "SOLUSDT").upper()
 
     try:
-        bars = fm.fetch_candles(interval, limit)
+        bars = fm.fetch_candles(interval, limit, symbol=sym)
     except (fm.FetchError, fm.SchemaError) as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "bars": []}
 
     return {
         "ok": True,
         "interval": interval,
-        "symbol": "SOLUSDT",
+        "symbol": sym,
         "bars": [{
             # Lightweight Charts / KLineChart wants UNIX seconds
             "time": b["open_time"] // 1000,
@@ -229,7 +280,7 @@ def get_candles(interval: str = "1h", limit: int = 300) -> dict:
     }
 
 
-def get_indicators(interval: str = "1h", limit: int = 300) -> dict:
+def get_indicators(interval: str = "1h", limit: int = 300, symbol: str = "SOLUSDT") -> dict:
     """Rolling EMA12/EMA26/SMA20/RSI14/ATR14-band series over the SAME bars
     `/api/candles` serves, computed with the exact same pure functions
     predictor.py uses to score every live prediction (ema/sma/rsi/atr) - so
@@ -245,9 +296,10 @@ def get_indicators(interval: str = "1h", limit: int = 300) -> dict:
     if interval not in allowed:
         interval = "1h"
     limit = max(60, min(int(limit or 300), 1000))
+    sym = (symbol or "SOLUSDT").upper()
 
     try:
-        bars = fm.fetch_candles(interval, limit)
+        bars = fm.fetch_candles(interval, limit, symbol=sym)
     except (fm.FetchError, fm.SchemaError) as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
@@ -321,23 +373,21 @@ def get_indicators(interval: str = "1h", limit: int = 300) -> dict:
     }
 
 
-def get_markers(signal_source: str | None = "technical") -> dict:
-    """Every graded prediction as a chart marker.
-
-    This is the payoff of the self-hosted chart: Solana's own calls, placed
-    on the exact bar they were judged against, so accuracy is visible
-    instead of inferred from a table.
-    """
+def get_markers(signal_source: str | None = "technical", symbol: str | None = None) -> dict:
+    """Every graded prediction as a chart marker."""
     con = get_db()
     where = []
     args = []
     if signal_source and signal_source != "all":
         where.append("p.signal_source = ?")
         args.append(signal_source)
+    if symbol and symbol != "all":
+        where.append("p.symbol = ?")
+        args.append(symbol)
 
     where_clause = f"WHERE {' AND '.join(where)}" if where else ""
     sql = f"""
-        SELECT p.id, p.created_wib, p.created_utc, p.direction, p.ref_price, p.noise_threshold,
+        SELECT p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.direction, p.ref_price, p.noise_threshold,
                p.signal_source, p.target_bar_utc, p.horizon,
                o.realized_price, o.move, o.is_noise, o.correct, o.graded_wib
         FROM predictions p
@@ -351,27 +401,25 @@ def get_markers(signal_source: str | None = "technical") -> dict:
     out = []
     for r in rows:
         graded = r["graded_wib"] is not None
+        sym = r["symbol"] or "SOLUSDT"
         if not graded:
             if r["direction"] == "no_call":
-                kind, label, pos = "no_call_pending", f"#{r['id']} NO-CALL (ungraded)", "inBar"
+                kind, label, pos = "no_call_pending", f"#{r['id']} {sym} NO-CALL (ungraded)", "inBar"
             else:
-                kind, label, pos = "pending", f"#{r['id']} PENDING", "inBar"
+                kind, label, pos = "pending", f"#{r['id']} {sym} PENDING", "inBar"
         elif r["is_noise"]:
-            kind, label, pos = "noise", f"#{r['id']} NOISE", "inBar"
+            kind, label, pos = "noise", f"#{r['id']} {sym} NOISE", "inBar"
         elif r["correct"] == 1:
-            kind, label, pos = "win", f"#{r['id']} WIN", "belowBar"
+            kind, label, pos = "win", f"#{r['id']} {sym} WIN", "belowBar"
         elif r["correct"] == 0:
-            kind, label, pos = "loss", f"#{r['id']} LOSS", "aboveBar"
+            kind, label, pos = "loss", f"#{r['id']} {sym} LOSS", "aboveBar"
         else:
-            # Graded, not noise, but correct is still NULL: this is a
-            # resolved "no_call" - Solana declined to pick a direction, so
-            # win/loss doesn't apply, but the bar DID close and the real
-            # price WAS recorded. Must render distinctly from a row that
-            # hasn't reached its target bar yet (graded=False above).
-            kind, label, pos = "no_call_resolved", f"#{r['id']} NO-CALL", "inBar"
+            kind, label, pos = "no_call_resolved", f"#{r['id']} {sym} NO-CALL", "inBar"
 
         out.append({
             "id": r["id"],
+            "symbol": sym,
+            "leader_symbol": r["leader_symbol"],
             "created_wib": r["created_wib"],
             "created_utc": r["created_utc"],
             "target_bar_utc": r["target_bar_utc"],
@@ -393,13 +441,27 @@ def get_markers(signal_source: str | None = "technical") -> dict:
 
 
 def get_live_price() -> dict:
-    """Sub-minute spot tick for the live price strip."""
+    """Sub-minute spot tick for the live price strip across leaders and followers."""
     sys.path.insert(0, str(BASE_DIR))
     import fetch_market as fm
     try:
-        spot = fm.fetch_spot()
-        cc = fm.fetch_cross_check()
-        cross = cc.get("sol_usd") or spot["price"]
+        spot = fm.fetch_spot("SOLUSDT")
+        cross = spot["price"]
+        try:
+            cc = fm.fetch_cross_check()
+            if cc and cc.get("sol_usd"):
+                cross = cc["sol_usd"]
+        except Exception:
+            pass
+
+        spots = {}
+        for s in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]:
+            try:
+                sp = fm.fetch_spot(s)
+                spots[s] = sp["price"]
+            except Exception:
+                pass
+
         return {
             "ok": True,
             "spot": spot["price"],
@@ -407,6 +469,7 @@ def get_live_price() -> dict:
             "cross_check": cross,
             "basis": round(cross - spot["price"], 2),
             "basis_pct": round((cross - spot["price"]) / spot["price"] * 100, 3) if spot["price"] else 0.0,
+            "spots": spots,
         }
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -620,21 +683,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # API: /api/candles
         if path == "/api/candles":
             interval = query.get("interval", ["1h"])[0]
-            limit = query.get("limit", ["300"])[0]
-            self._json(get_candles(interval, limit))
+            limit_str = query.get("limit", ["300"])[0]
+            limit = int(limit_str) if limit_str.isdigit() else 300
+            symbol = query.get("symbol", ["SOLUSDT"])[0]
+            self._json(get_candles(interval, limit, symbol=symbol))
             return
 
         # API: /api/markers
         if path == "/api/markers":
             sig = query.get("signal", ["technical"])[0]
-            self._json(get_markers(signal_source=sig))
+            symbol = query.get("symbol", [None])[0]
+            self._json(get_markers(signal_source=sig, symbol=symbol))
             return
 
         # API: /api/indicators - EMA12/EMA26/SMA20/RSI14/ATR14-band overlays
         if path == "/api/indicators":
             interval = query.get("interval", ["1h"])[0]
-            limit = query.get("limit", ["300"])[0]
-            self._json(get_indicators(interval, limit))
+            limit_str = query.get("limit", ["300"])[0]
+            limit = int(limit_str) if limit_str.isdigit() else 300
+            symbol = query.get("symbol", ["SOLUSDT"])[0]
+            self._json(get_indicators(interval, limit, symbol=symbol))
             return
 
         # API: /api/live

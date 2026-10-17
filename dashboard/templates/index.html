@@ -38,14 +38,14 @@
   <header class="border-b border-slate-800 bg-[#0c121e]/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
     <div class="flex items-center gap-3">
       <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-lg shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-        ◎
+        ⚡
       </div>
       <div>
         <div class="flex items-center gap-2">
           <span class="font-bold text-white tracking-wide">SOLANA</span>
-          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">SOLUSDT QUANTS</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">MULTI-COIN LEAD-LAG</span>
         </div>
-        <div class="text-[11px] text-slate-400">Deterministic Falsifiable Prediction Ledger</div>
+        <div class="text-[11px] text-slate-400">BTC/ETH Leaders ➔ SOL · AVAX · SUI · NEAR · DOGE · LINK Followers</div>
       </div>
     </div>
 
@@ -182,6 +182,80 @@
       <div id="tabTradingView" class="hidden h-[36rem] w-full p-2 bg-black">
         <iframe id="tvIframe" class="w-full h-full border-0 rounded-lg"
           src="about:blank"></iframe>
+      </div>
+    </div>
+
+    <!-- Multi-Coin Lead-Lag Universe & Active Trades -->
+    <div class="space-y-4">
+      <!-- Universe Badges & Prices -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800/80 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-white uppercase tracking-wider font-mono">📡 Research Universe</span>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono border border-amber-500/20">8 COMBINED STREAMS</span>
+          </div>
+          <div class="text-[11px] text-slate-400 font-mono">Binance 1s Combined Stream</div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 font-mono text-xs">
+          <!-- Leaders -->
+          <div class="bg-slate-950/60 border border-amber-500/30 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-bold text-amber-400">👑 BTCUSDT</div>
+            <div id="price_BTCUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div class="text-[9px] text-slate-400 mt-0.5">Leader</div>
+          </div>
+          <div class="bg-slate-950/60 border border-amber-500/30 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-bold text-amber-400">👑 ETHUSDT</div>
+            <div id="price_ETHUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div class="text-[9px] text-slate-400 mt-0.5">Leader</div>
+          </div>
+          <!-- Followers -->
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 SOLUSDT</div>
+            <div id="price_SOLUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_SOLUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 AVAXUSDT</div>
+            <div id="price_AVAXUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_AVAXUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 SUIUSDT</div>
+            <div id="price_SUIUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_SUIUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 NEARUSDT</div>
+            <div id="price_NEARUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_NEARUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 DOGEUSDT</div>
+            <div id="price_DOGEUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_DOGEUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 LINKUSDT</div>
+            <div id="price_LINKUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_LINKUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Lead-Lag Trades Panel -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold text-white">Active Lead-Lag Trades (Barrier Touch Watcher)</h2>
+            <span id="activeTradesCountBadge" class="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">0 ACTIVE</span>
+          </div>
+          <span class="text-xs font-mono text-slate-400">Max 1/symbol · 15m cooldown</span>
+        </div>
+        <div id="activeTradesList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div class="col-span-full py-4 text-center text-xs text-slate-500 font-mono bg-slate-950/40 rounded-lg border border-slate-800/60">
+            No active lead-lag trades holding. Monitoring 8 coin streams for impulse-disparity triggers.
+          </div>
+        </div>
       </div>
     </div>
 
@@ -396,6 +470,7 @@
           <thead class="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
             <tr>
               <th class="py-3 px-4"># ID</th>
+              <th class="py-3 px-4">Symbol</th>
               <th class="py-3 px-4">Created (WIB)</th>
               <th class="py-3 px-4">Horizon</th>
               <th class="py-3 px-4">Signal</th>
@@ -409,7 +484,7 @@
           </thead>
           <tbody id="ledgerTableBody" class="divide-y divide-slate-800/60 text-slate-300">
             <tr>
-              <td colspan="10" class="text-center py-6 text-slate-500">Loading ledger data...</td>
+              <td colspan="11" class="text-center py-6 text-slate-500">Loading ledger data...</td>
             </tr>
           </tbody>
         </table>

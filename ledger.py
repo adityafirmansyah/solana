@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS predictions (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     created_utc        TEXT    NOT NULL,
     created_wib        TEXT    NOT NULL,
-    horizon            TEXT    NOT NULL,   -- '1h' | '24h'
+    symbol             TEXT    NOT NULL DEFAULT 'SOLUSDT',
+    leader_symbol      TEXT,
+    horizon            TEXT    NOT NULL,   -- '1h' | '24h' | 'lead_lag' | 'event'
     target_bar_utc     TEXT    NOT NULL,   -- the bar this call is judged against
     scheduled_slot_utc TEXT    NOT NULL,   -- the cron slot this belongs to
     direction          TEXT    NOT NULL,   -- 'bullish' | 'bearish' | 'no_call'
@@ -59,7 +61,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     params_json        TEXT    NOT NULL,
     features_json      TEXT    NOT NULL,
     inputs_json        TEXT    NOT NULL,
-    signal_source      TEXT    NOT NULL,   -- 'technical' | 'sentiment' | 'ensemble'
+    signal_source      TEXT    NOT NULL,   -- 'technical' | 'sentiment' | 'lead_lag' | 'ensemble'
     notes              TEXT,
     noise_threshold    REAL    NOT NULL,   -- NOT NULL: ungradable without it
     prev_hash          TEXT    NOT NULL,
@@ -143,6 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_pred_target ON predictions(target_bar_utc);
 CREATE INDEX IF NOT EXISTS idx_pred_source ON predictions(signal_source);
 CREATE INDEX IF NOT EXISTS idx_pred_model  ON predictions(model_version);
 CREATE INDEX IF NOT EXISTS idx_pred_slot   ON predictions(scheduled_slot_utc);
+CREATE INDEX IF NOT EXISTS idx_pred_symbol ON predictions(symbol);
 """
 
 
@@ -354,6 +357,7 @@ def finish_slot(con, job: str, scheduled_slot_utc: str, status: str,
 def record_prediction(con, *, horizon, target_bar_utc, scheduled_slot_utc,
                       direction, confidence, ref_price, model_version, params,
                       features, inputs, signal_source, noise_threshold,
+                      symbol: str = "SOLUSDT", leader_symbol: str | None = None,
                       notes=None) -> int:
     """Append one prediction, chained. Returns its id. Never updates anything."""
     utc, wib = now_both()
@@ -361,7 +365,9 @@ def record_prediction(con, *, horizon, target_bar_utc, scheduled_slot_utc,
     def _do():
         prev = _last_hash(con)
         payload = {
-            "created_utc": utc, "created_wib": wib, "horizon": horizon,
+            "created_utc": utc, "created_wib": wib,
+            "symbol": symbol, "leader_symbol": leader_symbol,
+            "horizon": horizon,
             "target_bar_utc": target_bar_utc,
             "scheduled_slot_utc": scheduled_slot_utc, "direction": direction,
             "confidence": confidence, "ref_price": ref_price,
@@ -373,12 +379,12 @@ def record_prediction(con, *, horizon, target_bar_utc, scheduled_slot_utc,
         h = _row_hash(prev, payload)
         cur = con.execute(
             """INSERT INTO predictions
-               (created_utc, created_wib, horizon, target_bar_utc,
+               (created_utc, created_wib, symbol, leader_symbol, horizon, target_bar_utc,
                 scheduled_slot_utc, direction, confidence, ref_price,
                 model_version, params_json, features_json, inputs_json,
                 signal_source, notes, noise_threshold, prev_hash, row_hash)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (utc, wib, horizon, target_bar_utc, scheduled_slot_utc, direction,
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (utc, wib, symbol, leader_symbol, horizon, target_bar_utc, scheduled_slot_utc, direction,
              confidence, ref_price, model_version, _canonical(params),
              _canonical(features), _canonical(inputs), signal_source, notes,
              noise_threshold, prev, h))
@@ -421,6 +427,8 @@ def ensure_outcome_details_table(con) -> None:
     con.execute("""
         CREATE TABLE IF NOT EXISTS outcome_details (
             prediction_id INTEGER PRIMARY KEY,
+            symbol TEXT,
+            leader_symbol TEXT,
             target_price REAL NOT NULL,
             sl_price REAL NOT NULL,
             bar_high REAL NOT NULL,
@@ -432,22 +440,28 @@ def ensure_outcome_details_table(con) -> None:
             FOREIGN KEY(prediction_id) REFERENCES predictions(id)
         )
     """)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(outcome_details)").fetchall()]
+    if "symbol" not in cols:
+        con.execute("ALTER TABLE outcome_details ADD COLUMN symbol TEXT")
+    if "leader_symbol" not in cols:
+        con.execute("ALTER TABLE outcome_details ADD COLUMN leader_symbol TEXT")
     con.commit()
 
 
 def record_outcome_details(con, *, prediction_id: int, target_price: float,
                            sl_price: float, bar_high: float, bar_low: float,
-                           target_reached: int, sl_hit: int) -> None:
+                           target_reached: int, sl_hit: int,
+                           symbol: str | None = None, leader_symbol: str | None = None) -> None:
     ensure_outcome_details_table(con)
     utc, wib = now_both()
 
     def _do():
         con.execute(
             """INSERT OR REPLACE INTO outcome_details
-               (prediction_id, target_price, sl_price, bar_high, bar_low,
+               (prediction_id, symbol, leader_symbol, target_price, sl_price, bar_high, bar_low,
                 target_reached, sl_hit, recorded_utc, recorded_wib)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (prediction_id, target_price, sl_price, bar_high, bar_low,
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (prediction_id, symbol, leader_symbol, target_price, sl_price, bar_high, bar_low,
              target_reached, sl_hit, utc, wib))
         con.commit()
 

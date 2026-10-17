@@ -7,3 +7,4 @@ solana.db-wal
 backups/
 state/circuit.json
 .env
+*.bak

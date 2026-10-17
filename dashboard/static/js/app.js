@@ -265,8 +265,89 @@ function renderTechnicalView(data) {
   renderEquityChart(data.equity_curve);
   renderDistributionChart(winsCount, lossCount, k.noise_filtered);
 
+  // Multi-coin stats & Active trades
+  renderActiveTrades(data.active_trades);
+  renderMultiCoinStats(data.by_symbol);
+
   // Render Table
   renderTable(data.recent_predictions);
+}
+
+function renderMultiCoinStats(bySymbol) {
+  if (!bySymbol) return;
+  for (const [sym, st] of Object.entries(bySymbol)) {
+    const el = document.getElementById('stat_' + sym);
+    if (el) {
+      if (st.graded > 0) {
+        el.textContent = `${st.win_rate}% (${st.wins}W/${st.losses}L)`;
+      } else {
+        el.textContent = `${st.total} call${st.total === 1 ? '' : 's'}`;
+      }
+    }
+  }
+}
+
+function renderActiveTrades(activeTrades) {
+  const container = document.getElementById('activeTradesList');
+  const badge = document.getElementById('activeTradesCountBadge');
+  if (!container) return;
+  
+  const count = (activeTrades && activeTrades.length) || 0;
+  if (badge) {
+    badge.textContent = `${count} ACTIVE`;
+    badge.className = `text-[10px] px-2 py-0.5 rounded font-mono ${count > 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`;
+  }
+
+  if (!count) {
+    container.innerHTML = `
+      <div class="col-span-full py-4 text-center text-xs text-slate-500 font-mono bg-slate-950/40 rounded-lg border border-slate-800/60">
+        No active lead-lag trades holding. Monitoring 8 coin streams for impulse-disparity triggers.
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = activeTrades.map(t => {
+    const isBull = t.direction === 'bullish';
+    const dirClass = isBull ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : 'text-rose-400 bg-rose-500/10 border-rose-500/30';
+    const sym = t.symbol || 'SOLUSDT';
+    const leader = t.leader_symbol || 'BTCUSDT';
+    const fmt = (v) => v < 0.1 ? v.toFixed(5) : (v < 2 ? v.toFixed(4) : (v < 100 ? v.toFixed(3) : v.toFixed(2)));
+    const refStr = t.ref_price ? fmt(t.ref_price) : '--';
+    const tpStr = t.tp_price ? fmt(t.tp_price) : '--';
+    const slStr = t.sl_price ? fmt(t.sl_price) : '--';
+
+    return `
+      <div class="bg-slate-950/60 border border-slate-800 hover:border-amber-500/40 rounded-xl p-3.5 space-y-2 font-mono text-xs">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="font-bold text-amber-300">${sym}</span>
+            <span class="text-[10px] text-slate-500">via ${leader}</span>
+          </div>
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${dirClass}">
+            ${isBull ? '🐂 BULL' : '🐻 BEAR'}
+          </span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-[11px] pt-1 border-t border-slate-900">
+          <div>
+            <div class="text-[9px] text-slate-500">ENTRY REF</div>
+            <div class="text-white font-bold tabular">$${refStr}</div>
+          </div>
+          <div>
+            <div class="text-[9px] text-emerald-400">TARGET (TP)</div>
+            <div class="text-emerald-300 font-bold tabular">$${tpStr}</div>
+          </div>
+          <div>
+            <div class="text-[9px] text-rose-400">STOP (SL)</div>
+            <div class="text-rose-300 font-bold tabular">$${slStr}</div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-900/60">
+          <span>#${t.id} · ${t.created_wib ? t.created_wib.slice(11, 19) : ''} WIB</span>
+          <span class="text-amber-400/90">${t.disparity_pct ? `Disparity: ${t.disparity_pct.toFixed(2)}%` : 'Lead-Lag'}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderEquityChart(series) {
@@ -350,9 +431,17 @@ function renderDistributionChart(wins, losses, noise) {
 function renderTable(predictions) {
   const tbody = document.getElementById('ledgerTableBody');
   if (!predictions || !predictions.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="text-center py-6 text-slate-500">No predictions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="text-center py-6 text-slate-500">No predictions found</td></tr>';
     return;
   }
+
+  const fmtPrice = (v) => {
+    if (v === null || v === undefined) return '—';
+    if (v < 0.1) return v.toFixed(5);
+    if (v < 2.0) return v.toFixed(4);
+    if (v < 100.0) return v.toFixed(3);
+    return v.toFixed(2);
+  };
 
   tbody.innerHTML = predictions.map(p => {
     const isBull = p.direction === 'bullish';
@@ -380,12 +469,12 @@ function renderTable(predictions) {
 
     let targetBadge = "";
     if (p.target_reached === 1) {
-      targetBadge = ' <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40" title="Target (TP) reached during 1h bar">🎯 TP</span>';
+      targetBadge = ' <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40" title="Target (TP) reached">🎯 TP</span>';
     } else if (p.sl_hit === 1) {
-      targetBadge = ' <span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold border border-rose-500/40" title="Stop Loss (SL) hit during 1h bar">🛑 SL</span>';
+      targetBadge = ' <span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold border border-rose-500/40" title="Stop Loss (SL) hit">🛑 SL</span>';
     }
 
-    const moveText = p.move !== null ? `${p.move > 0 ? '+' : ''}${p.move.toFixed(2)}` : '—';
+    const moveText = p.move !== null ? `${p.move > 0 ? '+' : ''}${fmtPrice(p.move)}` : '—';
     const moveColor = p.move > 0 ? 'text-emerald-400' : (p.move < 0 ? 'text-rose-400' : 'text-slate-400');
     
     const scoreVal = p.score !== undefined ? p.score : (p.direction === 'bearish' ? -p.confidence : p.confidence || 0);
@@ -398,7 +487,9 @@ function renderTable(predictions) {
 
     let reasonSummary = "Technical Confluence";
     if (p.notes) {
-      if (p.notes.includes("Bullish bias:")) {
+      if (p.notes.includes("Lead-Lag")) {
+        reasonSummary = p.notes;
+      } else if (p.notes.includes("Bullish bias:")) {
         reasonSummary = "Bullish momentum & structure";
       } else if (p.notes.includes("Bearish bias:")) {
         reasonSummary = "Bearish rejection & drag";
@@ -413,9 +504,16 @@ function renderTable(predictions) {
       }
     }
 
+    const sym = p.symbol || 'SOLUSDT';
+    const leaderStr = p.leader_symbol ? `<span class="text-[9px] text-slate-500 block">via ${p.leader_symbol}</span>` : '';
+
     return `
       <tr class="hover:bg-slate-800/40 transition-colors cursor-pointer group" onclick="openDetailsModal(${p.id})">
         <td class="py-3 px-4 font-mono font-medium text-slate-400 group-hover:text-amber-400">#${p.id}</td>
+        <td class="py-3 px-4 font-mono">
+          <span class="px-2 py-0.5 rounded font-bold text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20">${sym}</span>
+          ${leaderStr}
+        </td>
         <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${p.created_wib.slice(5, 16)}</td>
         <td class="py-3 px-4 font-mono text-slate-400">${p.horizon}</td>
         <td class="py-3 px-4 text-slate-400">${p.signal_source}</td>
@@ -433,8 +531,8 @@ function renderTable(predictions) {
             <div class="text-[11px] text-slate-400 truncate max-w-xs group-hover:text-slate-300" title="${reasonSummary}">${reasonSummary}</div>
           </div>
         </td>
-        <td class="py-3 px-4 text-right font-mono tabular">${p.ref_price.toFixed(2)}</td>
-        <td class="py-3 px-4 text-right font-mono tabular text-white">${p.realized_price ? p.realized_price.toFixed(2) : '—'}</td>
+        <td class="py-3 px-4 text-right font-mono tabular">${fmtPrice(p.ref_price)}</td>
+        <td class="py-3 px-4 text-right font-mono tabular text-white">${fmtPrice(p.realized_price)}</td>
         <td class="py-3 px-4 text-right font-mono tabular font-medium ${moveColor}">${moveText}</td>
         <td class="py-3 px-4 text-center whitespace-nowrap">${statusBadge}${targetBadge}</td>
       </tr>
@@ -913,6 +1011,16 @@ async function loadLivePrice() {
       document.getElementById('tickerSpot').textContent = `$${d.spot.toFixed(2)}`;
       const sign = d.basis >= 0 ? '+' : '';
       document.getElementById('tickerBasis').textContent = `${sign}$${d.basis.toFixed(2)} (${d.basis_pct}%)`;
+
+      if (d.spots) {
+        for (const [sym, px] of Object.entries(d.spots)) {
+          const el = document.getElementById('price_' + sym);
+          if (el) {
+            const formatted = px < 0.1 ? `$${px.toFixed(5)}` : (px < 2.0 ? `$${px.toFixed(4)}` : (px < 100.0 ? `$${px.toFixed(3)}` : `$${px.toFixed(2)}`));
+            el.textContent = formatted;
+          }
+        }
+      }
     }
   } catch(e){}
 }

@@ -192,21 +192,14 @@ def _req(obj, key, kind, where):
 
 # ------------------------------------------------------------------- sources
 
-def fetch_spot() -> dict:
-    """SOLUSDT last trade price from Binance — the primary reference price.
-
-    Unlike gold (no free keyless spot feed, forcing PAXG as a stand-in),
-    Binance's own ticker IS the market reference here: SOLUSDT is one of the
-    most liquid pairs on earth, so there is no "spot vs proxy" distinction
-    to make. The timestamp comes from our own fetch time, not a provider
-    field, so this returns an `updated_at` in the SAME shape Nugget's
-    fetch_spot uses (callers format it identically either way).
-    """
+def fetch_spot(symbol: str = "SOLUSDT") -> dict:
+    """Last trade price from Binance — the primary reference price."""
     host = "data-api.binance.vision"
-    d = _get_json(f"https://{host}/api/v3/ticker/price?symbol=SOLUSDT", host)
+    sym = symbol.upper()
+    d = _get_json(f"https://{host}/api/v3/ticker/price?symbol={sym}", host)
     price = _num(d, "price", "binance.price")
-    if not (1.0 < price < 100_000.0):
-        raise SchemaError(f"binance: implausible SOLUSDT price {price}")
+    if not (0.00001 < price < 1_000_000.0):
+        raise SchemaError(f"binance: implausible {sym} price {price}")
     return {"price": price,
             "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "source": host}
@@ -234,11 +227,12 @@ def fetch_cross_check() -> dict:
     return {"sol_usd": sol, "updated_at": ts, "source": host}
 
 
-def fetch_candles(interval: str = "1h", limit: int = 200) -> list[dict]:
-    """OHLCV from Binance SOLUSDT directly (no proxy symbol needed)."""
+def fetch_candles(interval: str = "1h", limit: int = 200, symbol: str = "SOLUSDT") -> list[dict]:
+    """OHLCV from Binance directly."""
     host = "data-api.binance.vision"
+    sym = symbol.upper()
     raw = _get_json(f"https://{host}/api/v3/klines"
-                    f"?symbol=SOLUSDT&interval={interval}&limit={limit}", host)
+                    f"?symbol={sym}&interval={interval}&limit={limit}", host)
     if not isinstance(raw, list) or len(raw) < 60:
         raise SchemaError(f"binance.vision: expected >=60 klines, got "
                           f"{len(raw) if isinstance(raw, list) else type(raw).__name__}")
@@ -255,8 +249,7 @@ def fetch_candles(interval: str = "1h", limit: int = 200) -> list[dict]:
             })
         except (TypeError, ValueError) as e:
             raise SchemaError(f"binance.vision: kline {i} unparseable ({e})")
-    # freshness: the last closed bar must be recent. BTC never closes, so a
-    # stale last bar here is unambiguously a feed problem, not a market close.
+    # freshness: the last closed bar must be recent.
     last_close = datetime.fromtimestamp(out[-1]["open_time"] / 1000, UTC)
     age_h = (datetime.now(UTC) - last_close).total_seconds() / 3600
     interval_hours = {"15m": 0.25, "1h": 1, "8h": 8, "12h": 12, "24h": 24, "1d": 24}.get(interval, 1)
@@ -266,10 +259,11 @@ def fetch_candles(interval: str = "1h", limit: int = 200) -> list[dict]:
     return out
 
 
-def fetch_1m_range(start_time_ms: int, end_time_ms: int) -> list[dict]:
+def fetch_1m_range(start_time_ms: int, end_time_ms: int, symbol: str = "SOLUSDT") -> list[dict]:
     """Fetch 1m klines between start and end timestamps (UTC ms) for intra-bar sequence resolution."""
     host = "data-api.binance.vision"
-    url = f"https://{host}/api/v3/klines?symbol=SOLUSDT&interval=1m&startTime={start_time_ms}&endTime={end_time_ms}&limit=1000"
+    sym = symbol.upper()
+    url = f"https://{host}/api/v3/klines?symbol={sym}&interval=1m&startTime={start_time_ms}&endTime={end_time_ms}&limit=1000"
     raw = _get_json(url, host)
     if not isinstance(raw, list):
         return []
@@ -289,10 +283,11 @@ def fetch_1m_range(start_time_ms: int, end_time_ms: int) -> list[dict]:
     return out
 
 
-def fetch_ticker() -> dict:
+def fetch_ticker(symbol: str = "SOLUSDT") -> dict:
     """24h ticker: session high/low, spread, volume."""
     host = "data-api.binance.vision"
-    d = _get_json(f"https://{host}/api/v3/ticker/24hr?symbol=SOLUSDT", host)
+    sym = symbol.upper()
+    d = _get_json(f"https://{host}/api/v3/ticker/24hr?symbol={sym}", host)
     out = {
         "last": _num(d, "lastPrice", "ticker"),
         "bid": _num(d, "bidPrice", "ticker"),

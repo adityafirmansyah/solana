@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Solana Event-Driven Watcher & Barrier Trigger Daemon — SOLUSDT.
+"""Solana Multi-Coin Lead-Lag Quantitative Research Engine & Barrier Daemon.
 
-Dual Responsibility:
-1. EVENT DETECTOR (Breakout / Surge Trigger):
-   - Streams 1-second klines (solusdt@kline_1s) and rolling volume metrics.
-   - Monitors rolling 1-minute and 5-minute volume vs 1-hour average volume.
-   - Triggers event prediction when:
-     a) Rolling Volume >= 2.5x normal baseline AND
-     b) Range Expansion (High - Low >= 1.5x 1m ATR) AND
-     c) No active trade is holding AND
-     d) Cooldown period elapsed (>= 30 mins since last event prediction).
-2. REAL-TIME BARRIER TRIGGER:
-   - Subscribes to 1s kline for exact touch of Target (TP) and Stop Loss (SL).
-   - Instant ledger resolution + Discord notification on barrier touch.
+Architecture:
+1. Leaders: BTCUSDT, ETHUSDT (liquidity drivers & market direction anchors).
+2. Target Followers: SOLUSDT, AVAXUSDT, SUIUSDT, NEARUSDT, DOGEUSDT, LINKUSDT.
+3. Stream: Binance Combined WebSocket Stream (1s klines for all 8 coins).
+4. Lead-Lag Impulse & Disparity Detector:
+   - Rolling 1s price & volume window (60s) for all 8 coins.
+   - Periodic 1h ATR14 & 1h average volume baseline per coin.
+   - Trigger: Leader impulse (>= 0.35% in 30s with vol >= 2.0x baseline).
+   - Follower Lag Check: Follower move < 0.15% in that direction.
+   - Disparity scoring: disparity = abs(leader_move_pct) - abs(realized_follower_move).
+   - Enter top lagging follower with dynamic TP (1.5x ATR) and SL (1.0x ATR).
+   - Guard rails: max 1 active trade per follower symbol, 15m cooldown per symbol.
+   - Instant Discord alert on entry and on barrier touch (WIN/LOSS).
 """
 
 from __future__ import annotations
@@ -35,21 +36,34 @@ import ledger
 import predictor
 import report_daily
 import fetch_market
-import cycle
 
 UTC = timezone.utc
 WIB = timezone(timedelta(hours=7))
-WS_URI = "wss://data-stream.binance.vision:9443/ws/solusdt@kline_1s"
+
+LEADERS = ["BTCUSDT", "ETHUSDT"]
+FOLLOWERS = ["SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]
+ALL_SYMBOLS = LEADERS + FOLLOWERS
+
+# Binance Combined WebSocket Stream URI
+WS_STREAMS = "/".join(s.lower() + "@kline_1s" for s in ALL_SYMBOLS)
+WS_URI = f"wss://data-stream.binance.vision:9443/stream?streams={WS_STREAMS}"
+
 DB_PATH = PROJECT_ROOT / "solana.db"
 DB_CHECK_INTERVAL_SECS = 5.0
-EVENT_COOLDOWN_SECS = 1800.0  # 30 minutes cooldown between event predictions
+
+# Detection thresholds
+LEADER_IMPULSE_MIN_PCT = 0.35      # 0.35% move in 30s
+LEADER_IMPULSE_MIN_VOL_RATIO = 2.0 # 2.0x 30s baseline volume
+FOLLOWER_LAG_MAX_PCT = 0.15        # Follower moved < 0.15% in impulse direction
+COOLDOWN_SECS = 900.0              # 15 minutes cooldown per follower symbol
+MAX_HOLDING_SECS = 7200.0          # 2 hours max holding time-stop
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("solana_event_watcher")
+logger = logging.getLogger("solana_lead_lag")
 
 
 def format_duration(seconds: float) -> str:
@@ -62,9 +76,19 @@ def format_duration(seconds: float) -> str:
     return f"{s}s"
 
 
+def format_price(px: float, symbol: str = "") -> str:
+    if px < 0.1:
+        return f"${px:.5f}"
+    elif px < 2.0:
+        return f"${px:.4f}"
+    elif px < 100.0:
+        return f"${px:.3f}"
+    return f"${px:,.2f}"
+
+
 def get_latest_base_rate(con) -> float:
     try:
-        r = con.execute("SELECT base_rate FROM outcomes ORDER BY id DESC LIMIT 1").fetchone()
+        r = con.execute("SELECT base_rate FROM outcomes ORDER BY prediction_id DESC LIMIT 1").fetchone()
         return float(r[0]) if r and r[0] is not None else 0.50
     except Exception:
         return 0.50
@@ -74,13 +98,12 @@ def load_active_trades_from_db() -> dict[int, dict]:
     con = ledger.connect()
     try:
         rows = con.execute("""
-            SELECT p.id, p.horizon, p.direction, p.ref_price, p.created_utc,
+            SELECT p.id, p.symbol, p.leader_symbol, p.horizon, p.direction, p.ref_price, p.created_utc,
                    p.scheduled_slot_utc, p.features_json, p.inputs_json,
                    p.params_json, p.noise_threshold, p.notes
             FROM predictions p
             LEFT JOIN outcomes o ON o.prediction_id = p.id
             WHERE o.prediction_id IS NULL
-              AND p.signal_source = 'technical'
               AND p.direction IN ('bullish', 'bearish')
             ORDER BY p.id ASC
         """).fetchall()
@@ -91,7 +114,9 @@ def load_active_trades_from_db() -> dict[int, dict]:
             pid = d["id"]
             ref = float(d["ref_price"])
             direction = d["direction"]
-            horizon = d["horizon"] or "event"
+            horizon = d["horizon"] or "lead_lag"
+            symbol = d.get("symbol") or "SOLUSDT"
+            leader_symbol = d.get("leader_symbol") or "BTCUSDT"
 
             try:
                 inputs = json.loads(d["inputs_json"] or "{}")
@@ -106,11 +131,11 @@ def load_active_trades_from_db() -> dict[int, dict]:
             sl = inputs.get("stop_loss_price") or inputs.get("sl_price")
 
             if tp is None or sl is None:
-                atr = features.get("atr14")
+                atr = features.get("atr") or features.get("atr14")
                 if not atr:
                     thr = d.get("noise_threshold")
-                    atr = (thr / predictor.NOISE_ATR_MULT) if thr else 1.0
-                levels = predictor.compute_trade_levels(ref, atr, direction, horizon=horizon)
+                    atr = (thr / 0.5) if thr else (ref * 0.005)
+                levels = predictor.compute_trade_levels(ref, atr, direction, horizon=horizon, tp_mult=1.5, sl_mult=1.0)
                 tp = levels["tp_price"]
                 sl = levels["sl_price"]
             else:
@@ -119,6 +144,8 @@ def load_active_trades_from_db() -> dict[int, dict]:
 
             active[pid] = {
                 "id": pid,
+                "symbol": symbol,
+                "leader_symbol": leader_symbol,
                 "horizon": horizon,
                 "direction": direction,
                 "ref_price": ref,
@@ -127,7 +154,7 @@ def load_active_trades_from_db() -> dict[int, dict]:
                 "created_utc": d["created_utc"],
                 "high_watermark": ref,
                 "low_watermark": ref,
-                "noise_threshold": d.get("noise_threshold") or 0.20,
+                "noise_threshold": d.get("noise_threshold") or (ref * 0.0025),
             }
 
         return active
@@ -137,13 +164,21 @@ def load_active_trades_from_db() -> dict[int, dict]:
 
 def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, trigger_time: datetime) -> bool:
     pid = trade["id"]
+    symbol = trade["symbol"]
+    leader = trade["leader_symbol"]
     direction = trade["direction"]
     horizon = trade["horizon"]
     ref = trade["ref_price"]
     tp = trade["tp_price"]
     sl = trade["sl_price"]
 
-    exit_price = tp if exit_reason == "tp_hit" else sl
+    if exit_reason == "tp_hit":
+        exit_price = tp
+    elif exit_reason == "sl_hit":
+        exit_price = sl
+    else:
+        exit_price = trigger_price
+
     move = exit_price - ref
     move_pct = (move / ref * 100) if ref else 0.0
 
@@ -154,8 +189,8 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
     elapsed_secs = (trigger_time - created_dt).total_seconds()
     duration_str = format_duration(elapsed_secs)
 
-    logger.info(f"Triggering {exit_reason.upper()} for #{pid} ({horizon} {direction}) at ${trigger_price:,.2f} "
-                f"(exit: ${exit_price:,.2f}, move: {move:+,.2f})")
+    logger.info(f"Triggering {exit_reason.upper()} for #{pid} ({symbol} {direction}) at {format_price(trigger_price, symbol)} "
+                f"(exit: {format_price(exit_price, symbol)}, move: {move_pct:+.2f}%)")
 
     con = ledger.connect()
     try:
@@ -166,13 +201,13 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
 
         base = get_latest_base_rate(con)
         is_noise = False
-        correct = 1 if exit_reason == "tp_hit" else 0
+        correct = 1 if exit_reason == "tp_hit" else (0 if exit_reason == "sl_hit" else None)
 
         ledger.record_outcome(
             con,
             prediction_id=pid,
-            realized_price=exit_price,
-            move=round(move, 4),
+            realized_price=round(exit_price, 6),
+            move=round(move, 6),
             move_pct=round(move_pct, 4),
             is_noise=is_noise,
             correct=correct,
@@ -182,15 +217,17 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
         ledger.record_outcome_details(
             con,
             prediction_id=pid,
-            target_price=tp,
-            sl_price=sl,
-            bar_high=round(b_high, 2),
-            bar_low=round(b_low, 2),
+            symbol=symbol,
+            leader_symbol=leader,
+            target_price=round(tp, 6),
+            sl_price=round(sl, 6),
+            bar_high=round(b_high, 6),
+            bar_low=round(b_low, 6),
             target_reached=1 if exit_reason == "tp_hit" else 0,
             sl_hit=1 if exit_reason == "sl_hit" else 0,
         )
 
-        logger.info(f"Successfully recorded outcome for #{pid} in ledger.")
+        logger.info(f"Successfully recorded outcome for #{pid} ({symbol}) in ledger.")
     except Exception as e:
         logger.error(f"Failed to record outcome for #{pid}: {e}", exc_info=True)
         return False
@@ -202,11 +239,14 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
         is_win = exit_reason == "tp_hit"
 
         if is_win:
-            title = "🎯 **TARGET REACHED (Take Profit)** · Solana SOLUSDT"
+            title = f"🎯 **TARGET REACHED (Take Profit)** · {symbol} (Leader: {leader})"
             res_line = "• **Result**: ✅ **WIN** (Real-time TP trigger)"
-        else:
-            title = "🛑 **STOP LOSS TRIGGERED (Cut Loss)** · Solana SOLUSDT"
+        elif exit_reason == "sl_hit":
+            title = f"🛑 **STOP LOSS TRIGGERED (Cut Loss)** · {symbol} (Leader: {leader})"
             res_line = "• **Result**: ❌ **CUT LOSS** (Real-time SL trigger)"
+        else:
+            title = f"⏰ **TIME STOP EXPIRED** · {symbol} (Leader: {leader})"
+            res_line = "• **Result**: ⏱️ **FLAT CUT** (Max holding elapsed)"
 
         pnl_pts = move if direction == "bullish" else -move
         pnl_pct = move_pct if direction == "bullish" else -move_pct
@@ -214,9 +254,9 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
         msg = (
             f"{title}\n"
             f"• **Prediction**: #{pid} (`{horizon}` {direction.upper()})\n"
-            f"• **Entry (Ref)**: `${ref:,.2f}` → **Exit**: `${exit_price:,.2f}` "
-            f"(`{pnl_pts:+,.2f} pts` · `{pnl_pct:+.2f}%`)\n"
-            f"• **Trigger Spot**: `${trigger_price:,.2f}` (TP: `${tp:,.2f}` · SL: `${sl:,.2f}`)\n"
+            f"• **Entry (Ref)**: `{format_price(ref, symbol)}` → **Exit**: `{format_price(exit_price, symbol)}` "
+            f"(`{pnl_pts:+.4f} pts` · `{pnl_pct:+.2f}%`)\n"
+            f"• **Trigger Spot**: `{format_price(trigger_price, symbol)}` (TP: `{format_price(tp, symbol)}` · SL: `{format_price(sl, symbol)}`)\n"
             f"{res_line}\n"
             f"• **Duration**: {duration_str} · {wib_time_str} WIB"
         )
@@ -228,26 +268,143 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
     return True
 
 
-def sync_execute_event_cycle(trigger_reason: str):
-    logger.info(f"Executing event breakout prediction cycle! Reason: {trigger_reason}")
-    res = cycle.run(horizon="event")
-    msg = cycle.format_hourly_delivery(res)
-    if msg:
-        report_daily.post_discord(msg)
-        logger.info(f"Event prediction broadcasted to Discord. Action: {res.get('action')}")
-    return res
+def sync_record_lead_lag_prediction(
+    symbol: str,
+    leader: str,
+    direction: str,
+    ref_price: float,
+    leader_move_pct: float,
+    leader_vol_ratio: float,
+    follower_move_pct: float,
+    disparity: float,
+    atr_val: float,
+) -> dict | None:
+    now_utc_dt = datetime.now(UTC)
+    now_utc = now_utc_dt.isoformat(timespec="seconds")
+    now_wib = now_utc_dt.astimezone(WIB).isoformat(timespec="seconds")
+    target_bar_utc = (now_utc_dt + timedelta(seconds=MAX_HOLDING_SECS)).isoformat(timespec="seconds")
+
+    if atr_val <= 0:
+        atr_val = ref_price * 0.005
+
+    tp_mult = 1.5
+    sl_mult = 1.0
+    tp_pts = round(tp_mult * atr_val, 6)
+    sl_pts = round(sl_mult * atr_val, 6)
+
+    if direction == "bullish":
+        tp_price = round(ref_price + tp_pts, 6)
+        sl_price = round(ref_price - sl_pts, 6)
+    else:
+        tp_price = round(ref_price - tp_pts, 6)
+        sl_price = round(ref_price + sl_pts, 6)
+
+    noise_thr = round(0.5 * atr_val, 6)
+    confidence = round(min(0.95, max(0.55, 0.50 + disparity * 0.20)), 4)
+    model_version = "v1.0-lead-lag-multi"
+
+    params = {
+        "model": "lead_lag_disparity",
+        "leader": leader,
+        "disparity_pct": round(disparity, 4),
+        "tp_mult": tp_mult,
+        "sl_mult": sl_mult,
+    }
+    features = {
+        "leader": leader,
+        "leader_move_pct": round(leader_move_pct, 4),
+        "leader_vol_ratio": round(leader_vol_ratio, 2),
+        "follower_move_pct": round(follower_move_pct, 4),
+        "disparity_pct": round(disparity, 4),
+        "atr": round(atr_val, 6),
+    }
+    inputs = {
+        "ref_price": round(ref_price, 6),
+        "target_tp_price": tp_price,
+        "stop_loss_price": sl_price,
+        "tp_atr_mult": tp_mult,
+        "sl_atr_mult": sl_mult,
+        "leader": leader,
+    }
+    notes = (
+        f"Lead-Lag {direction.upper()}: {leader} {leader_move_pct:+.2f}% impulse (vol {leader_vol_ratio:.1f}x) "
+        f"➔ {symbol} lag ({follower_move_pct:+.2f}%, disparity {disparity:.2f}%)"
+    )
+
+    con = ledger.connect()
+    try:
+        pid = ledger.record_prediction(
+            con,
+            horizon="lead_lag",
+            target_bar_utc=target_bar_utc,
+            scheduled_slot_utc=now_utc,
+            direction=direction,
+            confidence=confidence,
+            ref_price=round(ref_price, 6),
+            model_version=model_version,
+            params=params,
+            features=features,
+            inputs=inputs,
+            signal_source="lead_lag",
+            noise_threshold=noise_thr,
+            symbol=symbol,
+            leader_symbol=leader,
+            notes=notes,
+        )
+        logger.info(f"Recorded Lead-Lag prediction #{pid} for {symbol} (Leader: {leader}, Dir: {direction})")
+    except Exception as e:
+        logger.error(f"Failed to record prediction in ledger: {e}", exc_info=True)
+        return None
+    finally:
+        con.close()
+
+    try:
+        wib_time = now_utc_dt.astimezone(WIB).strftime("%H:%M:%S")
+        dir_emoji = "🐂" if direction == "bullish" else "🐻"
+        msg = (
+            f"⚡ **LEAD-LAG SIGNAL TRIGGERED** · `{leader}` ➔ **{symbol}**\n"
+            f"• **Leader Impulse**: `{leader}` **{direction.upper()}** `{leader_move_pct:+.2f}%` in 30s "
+            f"(Vol: `{leader_vol_ratio:.1f}x` baseline)\n"
+            f"• **Lagging Target**: `{symbol}` (Moved only `{follower_move_pct:+.2f}%` · Disparity: `{disparity:.2f}%`)\n"
+            f"• **Direction**: {dir_emoji} **{direction.upper()}**\n"
+            f"• **Entry (Ref)**: `{format_price(ref_price, symbol)}`\n"
+            f"• **Target (TP)**: `{format_price(tp_price, symbol)}` (+1.5× ATR) · **Stop Loss (SL)**: `{format_price(sl_price, symbol)}` (-1.0× ATR)\n"
+            f"• **Slot**: #{pid} · {wib_time} WIB"
+        )
+        post_res = report_daily.post_discord(msg)
+        logger.info(f"Lead-lag signal alert posted to Discord for #{pid}: {post_res}")
+    except Exception as e:
+        logger.error(f"Failed to post Discord trigger alert: {e}")
+
+    return {
+        "id": pid,
+        "symbol": symbol,
+        "leader_symbol": leader,
+        "horizon": "lead_lag",
+        "direction": direction,
+        "ref_price": ref_price,
+        "tp_price": tp_price,
+        "sl_price": sl_price,
+        "created_utc": now_utc,
+        "high_watermark": ref_price,
+        "low_watermark": ref_price,
+        "noise_threshold": noise_thr,
+    }
 
 
-class SolanaEventWatcher:
+class MultiCoinLeadLagWatcher:
     def __init__(self):
         self.active_trades: dict[int, dict] = {}
         self.last_db_mtime: float = 0.0
         self.last_db_check: float = 0.0
         self.running = True
-        # Rolling metrics for 1s candles: 60s window
-        self.rolling_1s = deque(maxlen=60)
-        self.last_event_trigger_ts: float = 0.0
-        self.baseline_1s_vol: float = 50.0  # default initial estimate
+
+        # Rolling 1s candles: 60s window per coin
+        self.rolling_1s: dict[str, deque] = {s: deque(maxlen=60) for s in ALL_SYMBOLS}
+        self.last_trigger_ts: dict[str, float] = {s: 0.0 for s in FOLLOWERS}
+        self.baselines: dict[str, dict] = {
+            s: {"atr": 0.0, "baseline_1s_vol": 10.0} for s in ALL_SYMBOLS
+        }
 
     def check_db_update(self, force: bool = False):
         now = time.monotonic()
@@ -269,7 +426,7 @@ class SolanaEventWatcher:
                     trade["low_watermark"] = self.active_trades[pid].get("low_watermark", trade["ref_price"])
             self.active_trades = fresh
             logger.info(f"Active trades updated from DB: {len(self.active_trades)} in progress "
-                        f"({list(self.active_trades.keys())})")
+                        f"({[(t['id'], t['symbol'], t['direction']) for t in self.active_trades.values()]})")
 
     def evaluate_1s_kline(self, trade: dict, k: dict) -> tuple[str | None, float]:
         direction = trade["direction"]
@@ -307,69 +464,136 @@ class SolanaEventWatcher:
             elif sl_hit:
                 return ("sl_hit", sl)
 
+        # Time-stop check (2 hours)
+        try:
+            created_dt = datetime.fromisoformat(trade["created_utc"])
+            if (datetime.now(UTC) - created_dt).total_seconds() >= MAX_HOLDING_SECS:
+                return ("time_stop", k_close)
+        except Exception:
+            pass
+
         return (None, k_close)
 
-    def check_event_trigger(self, k: dict) -> str | None:
-        """Check if rolling volume + price action indicates an explosive breakout event."""
-        vol = float(k["v"])
-        self.rolling_1s.append({
-            "high": float(k["h"]),
-            "low": float(k["l"]),
-            "close": float(k["c"]),
-            "vol": vol,
-            "ts": k["t"],
-        })
-
-        if len(self.rolling_1s) < 30:
+    def evaluate_lead_lag_opportunity(self, leader_symbol: str) -> dict | None:
+        """Evaluate if leader impulse creates a disparity with any lagging follower."""
+        leader_hist = list(self.rolling_1s[leader_symbol])
+        if len(leader_hist) < 30:
             return None
 
+        # 30-second window on leader
+        l_30 = leader_hist[-30:]
+        l_start = l_30[0]["open"]
+        l_now = l_30[-1]["close"]
+        if l_start <= 0:
+            return None
+
+        leader_move_pct = (l_now - l_start) / l_start * 100.0
+        abs_l_move = abs(leader_move_pct)
+
+        # Check impulse threshold
+        if abs_l_move < LEADER_IMPULSE_MIN_PCT:
+            return None
+
+        l_vol_30s = sum(x["vol"] for x in l_30)
+        baseline_1s = self.baselines[leader_symbol].get("baseline_1s_vol") or 10.0
+        l_baseline_30s = max(1e-6, baseline_1s * 30.0)
+        vol_ratio = l_vol_30s / l_baseline_30s
+
+        if vol_ratio < LEADER_IMPULSE_MIN_VOL_RATIO:
+            return None
+
+        direction = "bullish" if leader_move_pct > 0 else "bearish"
         now_ts = time.time()
-        if (now_ts - self.last_event_trigger_ts) < EVENT_COOLDOWN_SECS:
+
+        candidates = []
+        for follower in FOLLOWERS:
+            # Slot guard: max 1 active trade per follower symbol
+            if any(t.get("symbol") == follower for t in self.active_trades.values()):
+                continue
+
+            # Cooldown guard: 15 minutes per follower symbol
+            if (now_ts - self.last_trigger_ts.get(follower, 0.0)) < COOLDOWN_SECS:
+                continue
+
+            f_hist = list(self.rolling_1s[follower])
+            if len(f_hist) < 30:
+                continue
+
+            f_30 = f_hist[-30:]
+            f_start = f_30[0]["open"]
+            f_now = f_30[-1]["close"]
+            if f_start <= 0:
+                continue
+
+            follower_move_pct = (f_now - f_start) / f_start * 100.0
+
+            # Follower move in direction of impulse
+            realized_dir_move = follower_move_pct if direction == "bullish" else -follower_move_pct
+
+            # Lag check: follower has moved < 0.15% in that direction
+            if realized_dir_move >= FOLLOWER_LAG_MAX_PCT:
+                continue
+
+            # Disparity: expected impulse minus realized move
+            disparity = abs_l_move - max(0.0, realized_dir_move)
+            if disparity <= 0.10:
+                continue
+
+            atr = self.baselines[follower].get("atr") or (f_now * 0.005)
+            candidates.append({
+                "follower": follower,
+                "leader": leader_symbol,
+                "direction": direction,
+                "ref_price": f_now,
+                "leader_move_pct": leader_move_pct,
+                "leader_vol_ratio": vol_ratio,
+                "follower_move_pct": follower_move_pct,
+                "disparity": disparity,
+                "atr": atr,
+            })
+
+        if not candidates:
             return None
 
-        # If any active event trade is currently open, don't trigger another one
-        if any(t.get("horizon") == "event" for t in self.active_trades.values()):
-            return None
-
-        # Compute rolling 30-sec volume vs baseline
-        recent_30s_vol = sum(x["vol"] for x in list(self.rolling_1s)[-30:])
-        avg_30s_vol = max(100.0, self.baseline_1s_vol * 30.0)
-
-        # Volume Surge >= 3.0x
-        vol_ratio = recent_30s_vol / avg_30s_vol
-        recent_high = max(x["high"] for x in list(self.rolling_1s)[-30:])
-        recent_low = min(x["low"] for x in list(self.rolling_1s)[-30:])
-        range_30s = recent_high - recent_low
-
-        # If 30-second move > $0.60 (significant on SOL spot ~$102) with high volume
-        if vol_ratio >= 3.0 and range_30s >= 0.60:
-            self.last_event_trigger_ts = now_ts
-            return f"Volume Surge ({vol_ratio:.1f}x) + Range Expansion (${range_30s:.2f} in 30s)"
-
-        return None
+        # Pick candidate with greatest disparity
+        candidates.sort(key=lambda c: c["disparity"], reverse=True)
+        return candidates[0]
 
     async def update_baseline_periodically(self):
-        """Update 1-hour average volume baseline every 15 minutes."""
+        """Fetch 1h ATR14 & 1h average volume baseline for all 8 coins every 15m."""
         while self.running:
-            try:
-                candles = await asyncio.to_thread(fetch_market.fetch_candles, "1h", 100)
-                if candles:
-                    avg_1h_vol = sum(c["volume"] for c in candles[-24:]) / min(24, len(candles))
-                    self.baseline_1s_vol = max(10.0, avg_1h_vol / 3600.0)
-                    logger.info(f"Updated baseline 1s volume: {self.baseline_1s_vol:.2f} SOL/s")
-            except Exception as e:
-                logger.warning(f"Failed to update volume baseline: {e}")
+            for symbol in ALL_SYMBOLS:
+                try:
+                    candles = await asyncio.to_thread(fetch_market.fetch_candles, "1h", 100, symbol)
+                    if candles and len(candles) >= 20:
+                        highs = [c["high"] for c in candles]
+                        lows = [c["low"] for c in candles]
+                        closes = [c["close"] for c in candles]
+                        atr_val = predictor.atr(highs, lows, closes, period=14)
+                        if atr_val is None or atr_val <= 0:
+                            atr_val = closes[-1] * 0.005
+
+                        avg_1h_vol = sum(c["volume"] for c in candles[-24:]) / min(24, len(candles))
+                        baseline_1s = max(1e-6, avg_1h_vol / 3600.0)
+
+                        self.baselines[symbol] = {
+                            "atr": atr_val,
+                            "baseline_1s_vol": baseline_1s,
+                        }
+                        logger.info(f"Baseline updated for {symbol:<8}: ATR14={format_price(atr_val, symbol)} | Vol={baseline_1s:.2f}/s")
+                except Exception as e:
+                    logger.warning(f"Failed to update baseline for {symbol}: {e}")
+                await asyncio.sleep(1.0)
             await asyncio.sleep(900)
 
     async def reconcile_startup(self):
         try:
-            ticker = await asyncio.to_thread(fetch_market.fetch_ticker)
-            current_spot = ticker["last"]
             now = datetime.now(UTC)
-            logger.info(f"Startup spot check: ${current_spot:,.2f}")
-
             to_remove = []
             for pid, trade in list(self.active_trades.items()):
+                symbol = trade.get("symbol", "SOLUSDT")
+                spot_data = await asyncio.to_thread(fetch_market.fetch_spot, symbol)
+                current_spot = spot_data["price"]
                 direction = trade["direction"]
                 tp = trade["tp_price"]
                 sl = trade["sl_price"]
@@ -387,7 +611,7 @@ class SolanaEventWatcher:
                         exit_reason = "sl_hit"
 
                 if exit_reason:
-                    logger.info(f"Reconciling #{pid} on startup ({exit_reason}) at ${current_spot:,.2f}")
+                    logger.info(f"Reconciling #{pid} ({symbol} {exit_reason}) at {format_price(current_spot, symbol)}")
                     ok = await asyncio.to_thread(sync_record_outcome, trade, exit_reason, current_spot, now)
                     if ok:
                         to_remove.append(pid)
@@ -400,42 +624,75 @@ class SolanaEventWatcher:
     async def run_stream(self):
         while self.running:
             try:
-                logger.info(f"Connecting to Binance 1s kline WebSocket: {WS_URI}")
+                logger.info(f"Connecting to Binance Combined WebSocket Stream: {WS_URI}")
                 async with websockets.connect(WS_URI, ping_interval=20, ping_timeout=15) as ws:
-                    logger.info("Connected to WebSocket successfully. Monitoring SOLUSDT real-time stream...")
+                    logger.info(f"Connected to stream. Monitoring 8 coins: Leaders={LEADERS}, Followers={FOLLOWERS}")
                     async for raw_msg in ws:
                         if not self.running:
                             break
 
                         self.check_db_update()
                         msg = json.loads(raw_msg)
-                        k = msg.get("k")
-                        if not k:
+                        data = msg.get("data")
+                        if not data:
                             continue
 
-                        # 1. Event trigger check
-                        event_reason = self.check_event_trigger(k)
-                        if event_reason:
-                            logger.info(f"⚡ EVENT BREAKOUT DETECTED: {event_reason}")
-                            asyncio.create_task(asyncio.to_thread(sync_execute_event_cycle, event_reason))
-
-                        # 2. Barrier touch check
-                        if not self.active_trades:
+                        k = data.get("k")
+                        symbol = data.get("s")
+                        if not k or not symbol or symbol not in self.rolling_1s:
                             continue
 
-                        now = datetime.now(UTC)
-                        concluded = []
-                        for pid, trade in list(self.active_trades.items()):
-                            exit_reason, trigger_px = self.evaluate_1s_kline(trade, k)
-                            if exit_reason:
-                                concluded.append((trade, exit_reason, trigger_px))
+                        # 1. Store in rolling window
+                        self.rolling_1s[symbol].append({
+                            "open": float(k["o"]),
+                            "high": float(k["h"]),
+                            "low": float(k["l"]),
+                            "close": float(k["c"]),
+                            "vol": float(k["v"]),
+                            "ts": k["t"],
+                        })
 
-                        for trade, exit_reason, trigger_px in concluded:
-                            pid = trade["id"]
-                            self.active_trades.pop(pid, None)
-                            asyncio.create_task(
-                                asyncio.to_thread(sync_record_outcome, trade, exit_reason, trigger_px, now)
-                            )
+                        # 2. If Leader kline -> evaluate Lead-Lag impulse & disparity
+                        if symbol in LEADERS:
+                            opp = self.evaluate_lead_lag_opportunity(symbol)
+                            if opp:
+                                follower = opp["follower"]
+                                self.last_trigger_ts[follower] = time.time()
+                                logger.info(
+                                    f"⚡ LEAD-LAG TRIGGER: {opp['leader']} {opp['direction']} {opp['leader_move_pct']:+.2f}% "
+                                    f"➔ {follower} lag (disparity: {opp['disparity']:.2f}%)"
+                                )
+                                trade = await asyncio.to_thread(
+                                    sync_record_lead_lag_prediction,
+                                    opp["follower"],
+                                    opp["leader"],
+                                    opp["direction"],
+                                    opp["ref_price"],
+                                    opp["leader_move_pct"],
+                                    opp["leader_vol_ratio"],
+                                    opp["follower_move_pct"],
+                                    opp["disparity"],
+                                    opp["atr"],
+                                )
+                                if trade:
+                                    self.active_trades[trade["id"]] = trade
+
+                        # 3. If Follower kline -> check active trades for barrier touch (TP/SL)
+                        if self.active_trades:
+                            concluded = []
+                            now = datetime.now(UTC)
+                            for pid, trade in list(self.active_trades.items()):
+                                if trade.get("symbol") == symbol:
+                                    exit_reason, trigger_px = self.evaluate_1s_kline(trade, k)
+                                    if exit_reason:
+                                        concluded.append((trade, exit_reason, trigger_px))
+
+                            for trade, exit_reason, trigger_px in concluded:
+                                pid = trade["id"]
+                                self.active_trades.pop(pid, None)
+                                asyncio.create_task(
+                                    asyncio.to_thread(sync_record_outcome, trade, exit_reason, trigger_px, now)
+                                )
 
             except Exception as e:
                 logger.error(f"WebSocket error: {e}. Reconnecting in 5s...")
@@ -446,7 +703,7 @@ class SolanaEventWatcher:
 
 
 async def main():
-    watcher = SolanaEventWatcher()
+    watcher = MultiCoinLeadLagWatcher()
     watcher.check_db_update(force=True)
     await watcher.reconcile_startup()
 
