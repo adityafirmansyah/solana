@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solana Lead-Lag · Binance Futures Testnet ($100 Bankroll)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bg: '#080c14',
+            panel: '#0e1524',
+            border: '#1b253b',
+          },
+          fontFamily: {
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #080c14; font-feature-settings: "tnum" 1; }
+    .glass-panel { background: rgba(14, 21, 36, 0.85); backdrop-filter: blur(12px); border: 1px solid #1b253b; }
+    @keyframes pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .live-dot { animation: pulse-subtle 2s infinite; }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col font-sans selection:bg-amber-500/20 selection:text-amber-300">
+
+  <!-- Top Header Bar -->
+  <header class="border-b border-border bg-[#0a0f1a]/90 backdrop-blur sticky top-0 z-50 px-5 py-3 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-xl shadow-[0_0_20px_rgba(245,158,11,0.2)]">
+        ⚡
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-base font-bold tracking-tight text-white">Solana Lead-Lag · Testnet Terminal</h1>
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot"></span>
+            LIVE TESTNET
+          </span>
+          <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-slate-800 text-slate-300 border border-slate-700">
+            BINANCE USDⓈ-M
+          </span>
+        </div>
+        <p class="text-xs text-slate-400">Strict $100 Bankroll Limitation · Isolated 5x Leverage · Micro-Order Execution</p>
+      </div>
+    </div>
+
+    <!-- Quick Actions & Status -->
+    <div class="flex items-center gap-4 text-xs font-mono">
+      <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800">
+        <span class="text-slate-400">Daemon:</span>
+        <span id="daemonStatus" class="text-emerald-400 font-medium flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Active
+        </span>
+      </div>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800">
+        <span class="text-slate-400">WIB:</span>
+        <span id="clockWib" class="text-amber-400 font-medium">--:--:--</span>
+      </div>
+      <button onclick="refreshData()" class="px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 font-sans transition flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+
+    <!-- KPI Metric Cards Grid ($100 Virtual Capital) -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <!-- 1. Total Virtual Equity -->
+      <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Virtual Equity</div>
+        <div class="my-1.5">
+          <div id="kpiEquity" class="text-2xl font-bold font-mono text-white">$100.00</div>
+          <div id="kpiEquityDelta" class="text-[11px] font-mono text-slate-400">Base: $100.00</div>
+        </div>
+        <div class="text-[11px] text-slate-500">Virtual Bankroll Limit</div>
+      </div>
+
+      <!-- 2. Available Balance -->
+      <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Available Cash</div>
+        <div class="my-1.5">
+          <div id="kpiAvailable" class="text-2xl font-bold font-mono text-emerald-400">$100.00</div>
+          <div class="text-[11px] text-slate-400 font-mono">Unused Capital</div>
+        </div>
+        <div class="text-[11px] text-slate-500">Liquid for new entries</div>
+      </div>
+
+      <!-- 3. Margin in Use -->
+      <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Margin Locked</div>
+        <div class="my-1.5">
+          <div id="kpiMargin" class="text-2xl font-bold font-mono text-amber-400">$0.00</div>
+          <div id="kpiMarginPct" class="text-[11px] text-slate-400 font-mono">0.0% of $100</div>
+        </div>
+        <div class="text-[11px] text-slate-500">5x Isolated leverage</div>
+      </div>
+
+      <!-- 4. Today's Realized PnL -->
+      <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Today's PnL</div>
+        <div class="my-1.5">
+          <div id="kpiTodayPnl" class="text-2xl font-bold font-mono text-slate-200">$0.00</div>
+          <div id="kpiTodayPnlPct" class="text-[11px] text-slate-400 font-mono">+0.00%</div>
+        </div>
+        <div class="text-[11px] text-slate-500">Calendar day (UTC)</div>
+      </div>
+
+      <!-- 5. Circuit Breaker Gauge -->
+      <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-400 font-medium">Daily Circuit</span>
+          <span id="kpiCircuitStatus" class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">ARMED</span>
+        </div>
+        <div class="my-1.5">
+          <div id="kpiCircuitLoss" class="text-2xl font-bold font-mono text-white">$0.00</div>
+          <div class="text-[11px] text-slate-400 font-mono">Max Loss: $5.00 (5%)</div>
+        </div>
+        <!-- Progress bar toward $5 loss -->
+        <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+          <div id="circuitBar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- 6. Total Trades & Hit Rate -->
+      <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Testnet Hit Rate</div>
+        <div class="my-1.5">
+          <div id="kpiWinRate" class="text-2xl font-bold font-mono text-white">--%</div>
+          <div id="kpiTradeCount" class="text-[11px] text-slate-400 font-mono">0 Wins / 0 Trades</div>
+        </div>
+        <div class="text-[11px] text-slate-500">Non-noise completed</div>
+      </div>
+    </div>
+
+    <!-- Active Positions Section -->
+    <div class="glass-panel rounded-2xl overflow-hidden shadow-xl border border-border">
+      <div class="px-5 py-4 border-b border-border flex items-center justify-between bg-slate-900/60">
+        <div class="flex items-center gap-2.5">
+          <div class="w-2.5 h-2.5 rounded-full bg-amber-400 live-dot"></div>
+          <h2 class="text-sm font-bold tracking-tight text-white">Active Positions (Live Testnet)</h2>
+          <span id="activeCountBadge" class="px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30">0 / 2 Active</span>
+        </div>
+        <span class="text-xs text-slate-400 font-mono">Capped at 2 simultaneous positions</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-slate-900/40 text-slate-400 font-mono">
+              <th class="py-3 px-4 font-medium">Symbol</th>
+              <th class="py-3 px-4 font-medium">Side / Mode</th>
+              <th class="py-3 px-4 font-medium">Entry Fill</th>
+              <th class="py-3 px-4 font-medium">Mark Price</th>
+              <th class="py-3 px-4 font-medium">Size / Notional</th>
+              <th class="py-3 px-4 font-medium">Margin Locked</th>
+              <th class="py-3 px-4 font-medium">Take Profit (1.5x)</th>
+              <th class="py-3 px-4 font-medium">Stop Loss (1.0x)</th>
+              <th class="py-3 px-4 font-medium text-right">Unrealized PnL</th>
+            </tr>
+          </thead>
+          <tbody id="positionsTableBody" class="divide-y divide-border/60 font-mono">
+            <tr>
+              <td colspan="9" class="py-8 text-center text-slate-500">
+                No active positions. Engine is monitoring 1s feed for Lead-Lag impulse...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Closed Executions History Section -->
+    <div class="glass-panel rounded-2xl overflow-hidden shadow-xl border border-border">
+      <div class="px-5 py-4 border-b border-border flex items-center justify-between bg-slate-900/60">
+        <div class="flex items-center gap-2.5">
+          <h2 class="text-sm font-bold tracking-tight text-white">Closed Testnet Executions</h2>
+          <span id="historyCountBadge" class="px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-slate-800 text-slate-300 border border-slate-700">0 Total</span>
+        </div>
+        <span class="text-xs text-slate-400 font-mono">Database: testnet_executions (solana.db)</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-border bg-slate-900/40 text-slate-400 font-mono">
+              <th class="py-3 px-4 font-medium">Time (WIB)</th>
+              <th class="py-3 px-4 font-medium">Pred #</th>
+              <th class="py-3 px-4 font-medium">Symbol</th>
+              <th class="py-3 px-4 font-medium">Direction</th>
+              <th class="py-3 px-4 font-medium">Entry Price</th>
+              <th class="py-3 px-4 font-medium">Exit Price</th>
+              <th class="py-3 px-4 font-medium">Exit Reason</th>
+              <th class="py-3 px-4 font-medium">Duration</th>
+              <th class="py-3 px-4 font-medium text-right">Realized PnL</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody" class="divide-y divide-border/60 font-mono">
+            <tr>
+              <td colspan="9" class="py-8 text-center text-slate-500">
+                No closed executions yet.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Safety & Rules Reference Card -->
+    <div class="glass-panel rounded-xl p-5 border border-border text-xs text-slate-400 space-y-2">
+      <div class="font-bold text-slate-200 text-sm flex items-center gap-2">
+        <span class="text-amber-400">🛡️</span> $100 Bankroll Safety Policy Enforced
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 font-mono text-[11px]">
+        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+          <span class="text-amber-400 font-bold block mb-1">1. Minimal Notional Sizing</span>
+          Target ~$6.00 USD per trade meets Binance $5 minNotional. At 5x Isolated, margin is ~$1.30–$1.90 (1.3%–1.9% of $100).
+        </div>
+        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+          <span class="text-emerald-400 font-bold block mb-1">2. Position Concurrency</span>
+          Hard limit of 2 simultaneous open positions. Maximum aggregate margin active across universe never exceeds $4.00 (4%).
+        </div>
+        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+          <span class="text-rose-400 font-bold block mb-1">3. Daily Drawdown Guard</span>
+          Circuit breaker halts trading if realized daily loss reaches $5.00 (5% equity), preventing drawdown cascades.
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-border/60 py-4 px-6 text-center text-xs font-mono text-slate-500 bg-[#070b12]">
+    Solana Lead-Lag Research & Execution Fleet · Port 3003 · Binance Futures Testnet Engine
+  </footer>
+
+  <!-- Vanilla JS Polling Engine -->
+  <script>
+    function updateClock() {
+      const now = new Date();
+      // WIB = UTC+7
+      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const wib = new Date(utc + (3600000 * 7));
+      document.getElementById('clockWib').innerText = wib.toTimeString().split(' ')[0] + ' WIB';
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    async function refreshData() {
+      try {
+        const [statsRes, posRes, histRes] = await Promise.all([
+          fetch('/api/stats').then(r => r.json()),
+          fetch('/api/positions').then(r => r.json()),
+          fetch('/api/history').then(r => r.json())
+        ]);
+
+        renderStats(statsRes);
+        renderPositions(posRes);
+        renderHistory(histRes);
+      } catch (err) {
+        console.error('Failed to refresh dashboard data:', err);
+      }
+    }
+
+    function renderStats(data) {
+      if (!data) return;
+      const equity = data.equity || 100.0;
+      const avail = data.available_cash || 100.0;
+      const margin = data.margin_locked || 0.0;
+      const marginPct = ((margin / equity) * 100).toFixed(1);
+      const todayPnl = data.today_pnl || 0.0;
+      const todayPnlPct = ((todayPnl / 100.0) * 100).toFixed(2);
+      const dailyLoss = Math.abs(data.daily_loss || 0.0);
+
+      document.getElementById('kpiEquity').innerText = '$' + equity.toFixed(2);
+      const delta = equity - 100.0;
+      const deltaEl = document.getElementById('kpiEquityDelta');
+      deltaEl.innerText = (delta >= 0 ? '+$' : '-$') + Math.abs(delta).toFixed(2) + ' (' + (delta >= 0 ? '+' : '') + delta.toFixed(2) + '%)';
+      deltaEl.className = 'text-[11px] font-mono ' + (delta > 0 ? 'text-emerald-400' : (delta < 0 ? 'text-rose-400' : 'text-slate-400'));
+
+      document.getElementById('kpiAvailable').innerText = '$' + avail.toFixed(2);
+      document.getElementById('kpiMargin').innerText = '$' + margin.toFixed(2);
+      document.getElementById('kpiMarginPct').innerText = marginPct + '% of $' + equity.toFixed(0);
+
+      const pnlEl = document.getElementById('kpiTodayPnl');
+      pnlEl.innerText = (todayPnl >= 0 ? '+$' : '-$') + Math.abs(todayPnl).toFixed(2);
+      pnlEl.className = 'text-2xl font-bold font-mono ' + (todayPnl > 0 ? 'text-emerald-400' : (todayPnl < 0 ? 'text-rose-400' : 'text-slate-200'));
+      document.getElementById('kpiTodayPnlPct').innerText = (todayPnl >= 0 ? '+' : '') + todayPnlPct + '% today';
+
+      document.getElementById('kpiCircuitLoss').innerText = '$' + dailyLoss.toFixed(2);
+      const circuitPct = Math.min(100, (dailyLoss / 5.0) * 100);
+      const bar = document.getElementById('circuitBar');
+      bar.style.width = circuitPct + '%';
+      if (circuitPct >= 100) {
+        bar.className = 'bg-rose-500 h-1.5 rounded-full';
+        document.getElementById('kpiCircuitStatus').innerText = 'HALTED';
+        document.getElementById('kpiCircuitStatus').className = 'px-1.5 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30';
+      } else {
+        bar.className = 'bg-emerald-500 h-1.5 rounded-full';
+        document.getElementById('kpiCircuitStatus').innerText = 'ARMED';
+        document.getElementById('kpiCircuitStatus').className = 'px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+      }
+
+      const total = data.total_trades || 0;
+      const wins = data.total_wins || 0;
+      const wr = total > 0 ? ((wins / total) * 100).toFixed(1) : '--';
+      document.getElementById('kpiWinRate').innerText = wr + (total > 0 ? '%' : '');
+      document.getElementById('kpiTradeCount').innerText = wins + ' Wins / ' + total + ' Trades';
+    }
+
+    function renderPositions(positions) {
+      const tbody = document.getElementById('positionsTableBody');
+      const badge = document.getElementById('activeCountBadge');
+      if (!positions || positions.length === 0) {
+        badge.innerText = '0 / 2 Active';
+        badge.className = 'px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-slate-800 text-slate-400 border border-slate-700';
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="py-8 text-center text-slate-500">
+              No active positions. Engine is monitoring 1s feed for Lead-Lag impulse...
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      badge.innerText = `${positions.length} / 2 Active`;
+      badge.className = 'px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30';
+
+      tbody.innerHTML = positions.map(pos => {
+        const isLong = pos.direction === 'bullish';
+        const pnl = pos.unrealized_pnl_usd || 0.0;
+        const pnlPct = pos.unrealized_pnl_pct || 0.0;
+        const pnlClass = pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        const sideBadge = isLong 
+          ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">LONG</span>'
+          : '<span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">SHORT</span>';
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-bold text-white flex items-center gap-1.5">
+              <span>${pos.symbol}</span>
+            </td>
+            <td class="py-3 px-4">${sideBadge} <span class="text-slate-400 text-[10px]">5x Iso</span></td>
+            <td class="py-3 px-4 text-slate-300">$${pos.entry_price.toFixed(4)}</td>
+            <td class="py-3 px-4 text-white font-bold">$${(pos.mark_price || pos.entry_price).toFixed(4)}</td>
+            <td class="py-3 px-4 text-slate-300">${pos.entry_qty} ($${pos.notional_usd.toFixed(2)})</td>
+            <td class="py-3 px-4 text-amber-400 font-semibold">$${pos.margin_used.toFixed(2)}</td>
+            <td class="py-3 px-4 text-emerald-400 font-mono">$${pos.tp_price.toFixed(4)}</td>
+            <td class="py-3 px-4 text-rose-400 font-mono">$${pos.sl_price.toFixed(4)}</td>
+            <td class="py-3 px-4 text-right font-bold ${pnlClass}">
+              ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderHistory(history) {
+      const tbody = document.getElementById('historyTableBody');
+      const badge = document.getElementById('historyCountBadge');
+      if (!history || history.length === 0) {
+        badge.innerText = '0 Total';
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="py-8 text-center text-slate-500">
+              No closed executions yet.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      badge.innerText = `${history.length} Total`;
+      tbody.innerHTML = history.slice(0, 30).map(row => {
+        const isLong = row.direction === 'bullish';
+        const pnl = row.pnl_usd || 0.0;
+        const pnlPct = row.pnl_pct || 0.0;
+        const pnlClass = pnl > 0 ? 'text-emerald-400' : (pnl < 0 ? 'text-rose-400' : 'text-slate-400');
+
+        let reasonBadge = '<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">TIME_STOP</span>';
+        if (row.exit_reason === 'tp_hit') {
+          reasonBadge = '<span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🎯 TP WIN</span>';
+        } else if (row.exit_reason === 'sl_hit') {
+          reasonBadge = '<span class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">🛑 SL LOSS</span>';
+        }
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-4 text-slate-400">${row.closed_wib || row.closed_utc || '--'}</td>
+            <td class="py-2.5 px-4 font-bold text-slate-300">#${row.prediction_id || row.id}</td>
+            <td class="py-2.5 px-4 font-semibold text-white">${row.symbol}</td>
+            <td class="py-2.5 px-4 ${isLong ? 'text-emerald-400' : 'text-rose-400'} font-semibold">
+              ${isLong ? 'LONG' : 'SHORT'}
+            </td>
+            <td class="py-2.5 px-4 text-slate-300">$${row.entry_price.toFixed(4)}</td>
+            <td class="py-2.5 px-4 text-white">$${row.exit_price.toFixed(4)}</td>
+            <td class="py-2.5 px-4">${reasonBadge}</td>
+            <td class="py-2.5 px-4 text-slate-400">${row.duration || '--'}</td>
+            <td class="py-2.5 px-4 text-right font-bold ${pnlClass}">
+              ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Auto refresh every 3 seconds
+    refreshData();
+    setInterval(refreshData, 3000);
+  </script>
+</body>
+</html>
