@@ -48,12 +48,16 @@
             BINANCE USDⓈ-M
           </span>
         </div>
-        <p class="text-xs text-slate-400">Strict $100 Bankroll Limitation · Isolated 5x Leverage · Micro-Order Execution</p>
+        <p class="text-xs text-slate-400">Strict $100 Bankroll · 3–5% Margin ($4.00–$5.50 / pos) · 5x Isolated · Binance Algo Orders</p>
       </div>
     </div>
 
     <!-- Quick Actions & Status -->
     <div class="flex items-center gap-4 text-xs font-mono">
+      <a href="http://127.0.0.1:3002" target="_blank" class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition">
+        <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span>Research (Port 3002)</span>
+      </a>
       <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800">
         <span class="text-slate-400">Daemon:</span>
         <span id="daemonStatus" class="text-emerald-400 font-medium flex items-center gap-1">
@@ -103,7 +107,7 @@
           <div id="kpiMargin" class="text-2xl font-bold font-mono text-amber-400">$0.00</div>
           <div id="kpiMarginPct" class="text-[11px] text-slate-400 font-mono">0.0% of $100</div>
         </div>
-        <div class="text-[11px] text-slate-500">5x Isolated leverage</div>
+        <div class="text-[11px] text-slate-500">Target: 3–5% ($4–$5.50 / pos)</div>
       </div>
 
       <!-- 4. Today's Realized PnL -->
@@ -140,6 +144,43 @@
           <div id="kpiTradeCount" class="text-[11px] text-slate-400 font-mono">0 Wins / 0 Trades</div>
         </div>
         <div class="text-[11px] text-slate-500">Non-noise completed</div>
+      </div>
+    </div>
+
+    <!-- Active Sizing & Risk Parameters Banner -->
+    <div class="glass-panel rounded-xl px-5 py-3.5 border border-border flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <span class="text-amber-300 font-bold tracking-tight">Active Sizing Rules:</span>
+        <span class="text-slate-300">Bankroll <b class="text-white font-bold">$100.00 USD</b></span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2.5 text-[11px]">
+        <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+          <span class="text-slate-400">Target Margin:</span>
+          <b id="ruleMarginPct" class="text-emerald-400 font-semibold">3.0% – 5.0%</b>
+          <span id="ruleMarginUsd" class="text-slate-500">($4.00 – $5.50)</span>
+        </div>
+        <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+          <span class="text-slate-400">Notional:</span>
+          <b id="ruleNotional" class="text-cyan-400 font-semibold">~$20.00 USD</b>
+        </div>
+        <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+          <span class="text-slate-400">Leverage:</span>
+          <b class="text-amber-400 font-semibold">5x ISOLATED</b>
+        </div>
+        <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+          <span class="text-slate-400">Max Open:</span>
+          <b class="text-purple-400 font-semibold">2 Positions</b>
+          <span class="text-slate-500">(&le; $10 Margin)</span>
+        </div>
+        <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+          <span class="text-slate-400">Circuit Loss:</span>
+          <b id="ruleCircuit" class="text-rose-400 font-semibold">$10.00 (10%)</b>
+        </div>
+        <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+          <span class="text-slate-400">Order Routing:</span>
+          <b class="text-sky-400 font-semibold">Binance Algo Order API</b>
+        </div>
       </div>
     </div>
 
@@ -316,6 +357,11 @@
       const wr = total > 0 ? ((wins / total) * 100).toFixed(1) : '--';
       document.getElementById('kpiWinRate').innerText = wr + (total > 0 ? '%' : '');
       document.getElementById('kpiTradeCount').innerText = wins + ' Wins / ' + total + ' Trades';
+
+      if (data.target_margin_pct) document.getElementById('ruleMarginPct').innerText = data.target_margin_pct;
+      if (data.target_margin_usd) document.getElementById('ruleMarginUsd').innerText = '(' + data.target_margin_usd + ')';
+      if (data.target_notional_usd) document.getElementById('ruleNotional').innerText = '~$' + Number(data.target_notional_usd).toFixed(2) + ' USD';
+      if (data.circuit_breaker_limit) document.getElementById('ruleCircuit').innerText = '$' + Number(data.circuit_breaker_limit).toFixed(2) + ' (10%)';
     }
 
     function renderPositions(positions) {
