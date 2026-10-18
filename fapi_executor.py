@@ -42,10 +42,11 @@ TESTNET_BASE_URL = "https://testnet.binancefuture.com"
 
 # Virtual Capital & Safety Parameters
 VIRTUAL_CAPITAL_USD = 100.0          # Strict virtual bankroll: treat equity as $100.00
-DEFAULT_NOTIONAL_USD = 6.0           # Minimal size per trade ($5.00 minNotional + small buffer)
+TARGET_MARGIN_PCT = 0.04             # 4% target margin per trade (3-5% band = $3.00 - $5.00 margin)
 DEFAULT_LEVERAGE = 5                 # 5x Isolated leverage
-MAX_CONCURRENT_POSITIONS = 2         # Max 2 concurrent positions (keeps total margin <= $5–$10, 5–10% equity)
-MAX_DAILY_LOSS_USD = 5.0             # Daily circuit breaker: 5% of $100 ($5.00 realized loss)
+DEFAULT_NOTIONAL_USD = 20.0          # 4% of $100 * 5x = $20.00 notional ($4.00 margin locked)
+MAX_CONCURRENT_POSITIONS = 2         # Max 2 concurrent positions (keeps total margin <= $8–$10, 8–10% equity)
+MAX_DAILY_LOSS_USD = 10.0            # Daily circuit breaker: 10% of $100 ($10.00 realized loss)
 
 # Symbol specifications on Binance Futures USDⓈ-M
 SYMBOL_SPECS = {
@@ -191,6 +192,7 @@ class BinanceFuturesExecutor:
 
     def compute_quantity(self, symbol: str, ref_price: float) -> tuple[float, float, float]:
         """Compute quantized order quantity matching symbol LOT_SIZE & MIN_NOTIONAL filters.
+        Targets 3-5% margin ($3.00 - $5.00) of $100 bankroll at 5x leverage (~$15 - $25 notional).
         Returns: (qty, actual_notional, margin_used)
         """
         spec = SYMBOL_SPECS.get(symbol, {"step_size": 0.01, "price_tick": 0.01, "min_qty": 0.01, "min_notional": 5.0})
@@ -198,8 +200,8 @@ class BinanceFuturesExecutor:
         min_notional = spec["min_notional"]
         min_qty = spec["min_qty"]
 
-        # Ensure target meets Binance minimum notional $5 with safety buffer
-        target = max(self.notional_usd, min_notional + 0.5)
+        # Target notional based on configured sizing (default $20.00 = 4% margin at 5x)
+        target = max(self.notional_usd, min_notional + 1.0)
         raw_qty = target / max(ref_price, 1e-6)
 
         precision = max(0, int(round(-math.log10(step))))

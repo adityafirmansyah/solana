@@ -125,7 +125,7 @@ def get_stats() -> dict:
             "unrealized_pnl": round(unrealized_pnl, 2),
             "today_pnl": today_pnl,
             "daily_loss": daily_loss,
-            "circuit_breaker_limit": 5.0,
+            "circuit_breaker_limit": 10.0,
             "total_trades": total_trades,
             "total_wins": total_wins,
             "active_positions_count": len(open_rows),
