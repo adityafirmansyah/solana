@@ -278,25 +278,37 @@ class BinanceFuturesExecutor:
         if avg_price <= 0:
             avg_price = ref_price
 
-        # 2. Place Bracket Stop Loss (STOP_MARKET with closePosition=True)
-        sl_res = self._request("POST", "/fapi/v1/order", {
+        # 2. Place Bracket Stop Loss via Algo Order API (/fapi/v1/algoOrder)
+        sl_res = self._request("POST", "/fapi/v1/algoOrder", {
             "symbol": symbol,
             "side": exit_side,
             "type": "STOP_MARKET",
-            "stopPrice": sl_tick,
-            "closePosition": "true",
+            "algoType": "CONDITIONAL",
+            "triggerPrice": str(sl_tick),
+            "quantity": str(qty),
+            "positionSide": "BOTH",
+            "workingType": "CONTRACT_PRICE",
+            "reduceOnly": "true",
         })
-        sl_order_id = str(sl_res.get("orderId", ""))
+        sl_order_id = str(sl_res.get("algoId", ""))
+        if not sl_order_id:
+            logger.error(f"Failed to place SL algoOrder for {symbol}: {sl_res}")
 
-        # 3. Place Bracket Take Profit (TAKE_PROFIT_MARKET with closePosition=True)
-        tp_res = self._request("POST", "/fapi/v1/order", {
+        # 3. Place Bracket Take Profit via Algo Order API (/fapi/v1/algoOrder)
+        tp_res = self._request("POST", "/fapi/v1/algoOrder", {
             "symbol": symbol,
             "side": exit_side,
             "type": "TAKE_PROFIT_MARKET",
-            "stopPrice": tp_tick,
-            "closePosition": "true",
+            "algoType": "CONDITIONAL",
+            "triggerPrice": str(tp_tick),
+            "quantity": str(qty),
+            "positionSide": "BOTH",
+            "workingType": "CONTRACT_PRICE",
+            "reduceOnly": "true",
         })
-        tp_order_id = str(tp_res.get("orderId", ""))
+        tp_order_id = str(tp_res.get("algoId", ""))
+        if not tp_order_id:
+            logger.error(f"Failed to place TP algoOrder for {symbol}: {tp_res}")
 
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -339,8 +351,17 @@ class BinanceFuturesExecutor:
         realized_price: float,
     ) -> None:
         """Handle position cleanup upon TP, SL, or Time-Stop event."""
-        # Cancel any open orders for this symbol (cleans up unused TP or SL order)
+        # 1. Cancel any standard open orders AND algo conditional orders for this symbol
         self._request("DELETE", "/fapi/v1/allOpenOrders", {"symbol": symbol})
+        try:
+            open_algos = self._request("GET", "/fapi/v1/openAlgoOrders", {"symbol": symbol})
+            orders_list = open_algos.get("orders", []) if isinstance(open_algos, dict) else (open_algos or [])
+            for algo in orders_list:
+                aid = algo.get("algoId")
+                if aid:
+                    self._request("DELETE", "/fapi/v1/algoOrder", {"symbol": symbol, "algoId": aid})
+        except Exception as e:
+            logger.warning(f"Failed to cancel open algo orders for {symbol}: {e}")
 
         with sqlite3.connect(DB_PATH) as con:
             con.row_factory = sqlite3.Row
@@ -356,16 +377,25 @@ class BinanceFuturesExecutor:
             entry_qty = float(row["entry_qty"])
             direction = row["direction"]
 
-            # If time-stop or manual, make sure exchange position is closed
-            if exit_reason not in ("tp_hit", "sl_hit"):
-                close_side = "SELL" if direction == "bullish" else "BUY"
-                self._request("POST", "/fapi/v1/order", {
-                    "symbol": symbol,
-                    "side": close_side,
-                    "type": "MARKET",
-                    "quantity": entry_qty,
-                    "reduceOnly": "true",
-                })
+            # 2. Check live position on exchange to ensure flat position
+            try:
+                positions = self._request("GET", "/fapi/v2/positionRisk", {"symbol": symbol})
+                if isinstance(positions, list):
+                    for p in positions:
+                        if p.get("symbol") == symbol:
+                            amt = float(p.get("positionAmt", 0.0))
+                            if amt != 0:
+                                close_side = "BUY" if amt < 0 else "SELL"
+                                logger.info(f"Closing remaining exchange position for {symbol}: {close_side} {abs(amt)}")
+                                self._request("POST", "/fapi/v1/order", {
+                                    "symbol": symbol,
+                                    "side": close_side,
+                                    "type": "MARKET",
+                                    "quantity": abs(amt),
+                                    "reduceOnly": "true",
+                                })
+            except Exception as e:
+                logger.error(f"Error flattening position for {symbol}: {e}")
 
             # Calculate realized PnL
             if direction == "bullish":
