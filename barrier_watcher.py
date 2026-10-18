@@ -42,6 +42,15 @@ import ledger
 import predictor
 import report_daily
 import fetch_market
+try:
+    from fapi_executor import BinanceFuturesExecutor, load_env as load_fapi_env
+    _env_cfg = load_fapi_env()
+    if _env_cfg.get("BINANCE_TESTNET_EXECUTION", "").lower() in ("true", "1", "yes"):
+        FAPI_EXECUTOR: BinanceFuturesExecutor | None = BinanceFuturesExecutor()
+    else:
+        FAPI_EXECUTOR = None
+except Exception as _ex:
+    FAPI_EXECUTOR = None
 
 UTC = timezone.utc
 WIB = timezone(timedelta(hours=7))
@@ -391,6 +400,17 @@ def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, tri
     finally:
         con.close()
 
+    if FAPI_EXECUTOR:
+        try:
+            FAPI_EXECUTOR.close_position_on_exit(
+                prediction_id=pid,
+                symbol=symbol,
+                exit_reason=exit_reason,
+                realized_price=exit_price,
+            )
+        except Exception as e:
+            logger.error(f"Failed to close testnet position for #{pid}: {e}")
+
     try:
         wib_time_str = trigger_time.astimezone(WIB).strftime("%H:%M:%S")
         is_win = exit_reason == "tp_hit"
@@ -528,6 +548,20 @@ def sync_record_lead_lag_prediction(
     finally:
         con.close()
 
+    exec_info = None
+    if FAPI_EXECUTOR:
+        try:
+            exec_info = FAPI_EXECUTOR.open_lead_lag_position(
+                prediction_id=pid,
+                symbol=symbol,
+                direction=direction,
+                ref_price=ref_price,
+                tp_price=tp_price,
+                sl_price=sl_price,
+            )
+        except Exception as e:
+            logger.error(f"Failed to execute testnet order for #{pid}: {e}")
+
     try:
         wib_time = now_utc_dt.astimezone(WIB).strftime("%H:%M:%S")
         dir_emoji = "🐂" if direction == "bullish" else "🐻"
@@ -536,6 +570,10 @@ def sync_record_lead_lag_prediction(
             f"Follower {symbol} masih tertinggal dan hanya bergerak {follower_move_pct:+.2f}% (lag < 0.05%), disparity {disparity:.2f}%. "
             f"Eksekusi entry {symbol} di {format_price(ref_price, symbol)}, Target TP {format_price(tp_price, symbol)}, SL {format_price(sl_price, symbol)}."
         )
+        testnet_line = ""
+        if exec_info:
+            testnet_line = f"\n• **Testnet Order**: `#{exec_info['execution_id']}` · Fill `{exec_info['entry_price']}` (5x Isolated)"
+
         metrics = (
             f"⚡ **FSM STATE 4: DISPARITY EXECUTION**\n"
             f"• **Signal**: `{leader}` ➔ **{symbol}**\n"
@@ -546,6 +584,7 @@ def sync_record_lead_lag_prediction(
             f"• **Entry (Ref)**: `{format_price(ref_price, symbol)}`\n"
             f"• **Target (TP)**: `{format_price(tp_price, symbol)}` (+1.5× ATR) · **Stop Loss (SL)**: `{format_price(sl_price, symbol)}` (-1.0× ATR)\n"
             f"• **Prediction ID**: `#{pid}` · `{wib_time} WIB`"
+            f"{testnet_line}"
         )
         post_persona_discord("DISPARITY_EXECUTION (State 4)", details, metrics)
     except Exception as e:
@@ -1167,6 +1206,18 @@ class MultiCoinLeadLagWatcher:
                 logger.error(f"WebSocket error: {e}. Reconnecting in 5s...")
                 await asyncio.sleep(5.0)
 
+    async def heartbeat_loop(self):
+        """Send periodic dead-man switch heartbeat when active trades exist."""
+        while self.running:
+            try:
+                if FAPI_EXECUTOR and self.active_trades:
+                    active_symbols: set[str] = {str(t["symbol"]) for t in self.active_trades.values() if t.get("symbol")}
+                    for sym in active_symbols:
+                        await asyncio.to_thread(FAPI_EXECUTOR.dead_man_heartbeat, sym, 60000)
+            except Exception as e:
+                logger.debug(f"Heartbeat tick error: {e}")
+            await asyncio.sleep(20.0)
+
     def stop(self):
         self.running = False
 
@@ -1187,6 +1238,7 @@ async def main():
     await asyncio.gather(
         watcher.run_stream(),
         watcher.update_baseline_periodically(),
+        watcher.heartbeat_loop(),
     )
 
 
