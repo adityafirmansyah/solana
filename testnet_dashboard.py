@@ -62,13 +62,18 @@ def get_live_tickers() -> dict[str, float]:
         return _TICKER_CACHE
 
 
+def get_db():
+    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
 def get_stats() -> dict:
     today_prefix = datetime.now(UTC).strftime("%Y-%m-%d")
     tickers = get_live_tickers()
 
-    with sqlite3.connect(DB_PATH) as con:
-        con.row_factory = sqlite3.Row
-
+    con = get_db()
+    try:
         # 1. Closed Trades Stats
         stats_row = con.execute("""
             SELECT 
@@ -125,12 +130,14 @@ def get_stats() -> dict:
             "total_wins": total_wins,
             "active_positions_count": len(open_rows),
         }
+    finally:
+        con.close()
 
 
 def get_open_positions() -> list[dict]:
     tickers = get_live_tickers()
-    with sqlite3.connect(DB_PATH) as con:
-        con.row_factory = sqlite3.Row
+    con = get_db()
+    try:
         rows = con.execute("SELECT * FROM testnet_executions WHERE status = 'OPEN' ORDER BY id ASC").fetchall()
         res = []
         for r in rows:
@@ -169,11 +176,13 @@ def get_open_positions() -> list[dict]:
                 "created_utc": r["created_utc"],
             })
         return res
+    finally:
+        con.close()
 
 
 def get_history() -> list[dict]:
-    with sqlite3.connect(DB_PATH) as con:
-        con.row_factory = sqlite3.Row
+    con = get_db()
+    try:
         rows = con.execute("""
             SELECT * FROM testnet_executions 
             WHERE status = 'CLOSED' 
@@ -214,6 +223,19 @@ def get_history() -> list[dict]:
                 "duration": duration_str,
             })
         return res
+    finally:
+        con.close()
+
+
+_INDEX_HTML_CACHE: bytes | None = None
+
+def get_index_html() -> bytes | None:
+    global _INDEX_HTML_CACHE
+    if _INDEX_HTML_CACHE is None:
+        index_path = TEMPLATE_DIR / "index.html"
+        if index_path.exists():
+            _INDEX_HTML_CACHE = index_path.read_bytes()
+    return _INDEX_HTML_CACHE
 
 
 class TestnetDashboardHandler(BaseHTTPRequestHandler):
@@ -222,9 +244,8 @@ class TestnetDashboardHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if path in ("/", "/index.html"):
-            index_path = TEMPLATE_DIR / "index.html"
-            if index_path.exists():
-                content = index_path.read_bytes()
+            content = get_index_html()
+            if content:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(content)))
