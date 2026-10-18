@@ -1141,6 +1141,14 @@ class MultiCoinLeadLagWatcher:
                     elif current_spot >= sl:
                         exit_reason = "sl_hit"
 
+                if not exit_reason:
+                    try:
+                        created_dt = datetime.fromisoformat(trade["created_utc"])
+                        if (now - created_dt).total_seconds() >= MAX_HOLDING_SECS:
+                            exit_reason = "time_stop"
+                    except Exception:
+                        pass
+
                 if exit_reason:
                     logger.info(f"Reconciling #{pid} ({symbol} {exit_reason}) at {format_price(current_spot, symbol)}")
                     ok = await asyncio.to_thread(sync_record_outcome, trade, exit_reason, current_spot, now)
