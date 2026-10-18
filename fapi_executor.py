@@ -40,6 +40,13 @@ if not logger.handlers:
 # Default Testnet URL
 TESTNET_BASE_URL = "https://testnet.binancefuture.com"
 
+# Virtual Capital & Safety Parameters
+VIRTUAL_CAPITAL_USD = 100.0          # Strict virtual bankroll: treat equity as $100.00
+DEFAULT_NOTIONAL_USD = 6.0           # Minimal size per trade ($5.00 minNotional + small buffer)
+DEFAULT_LEVERAGE = 5                 # 5x Isolated leverage
+MAX_CONCURRENT_POSITIONS = 2         # Max 2 concurrent positions (keeps total margin <= $5–$10, 5–10% equity)
+MAX_DAILY_LOSS_USD = 5.0             # Daily circuit breaker: 5% of $100 ($5.00 realized loss)
+
 # Symbol specifications on Binance Futures USDⓈ-M
 SYMBOL_SPECS = {
     "SOLUSDT": {"step_size": 0.01, "price_tick": 0.01, "min_qty": 0.01, "min_notional": 5.0},
@@ -49,9 +56,6 @@ SYMBOL_SPECS = {
     "DOGEUSDT": {"step_size": 1.0, "price_tick": 0.00001, "min_qty": 1.0, "min_notional": 5.0},
     "LINKUSDT": {"step_size": 0.01, "price_tick": 0.001, "min_qty": 0.01, "min_notional": 5.0},
 }
-
-DEFAULT_NOTIONAL_USD = 25.0  # Safe test size in USDT per trade
-DEFAULT_LEVERAGE = 5
 
 
 def load_env() -> dict[str, str]:
@@ -77,13 +81,23 @@ def round_tick(val: float, tick: float) -> float:
 
 
 class BinanceFuturesExecutor:
-    def __init__(self, notional_usd: float = DEFAULT_NOTIONAL_USD, leverage: int = DEFAULT_LEVERAGE):
+    def __init__(
+        self,
+        notional_usd: float = DEFAULT_NOTIONAL_USD,
+        leverage: int = DEFAULT_LEVERAGE,
+        virtual_capital: float = VIRTUAL_CAPITAL_USD,
+        max_concurrent: int = MAX_CONCURRENT_POSITIONS,
+        max_daily_loss: float = MAX_DAILY_LOSS_USD,
+    ):
         env = load_env()
         self.api_key = env.get("BINANCE_FUTURES_TESTNET_KEY", "")
         self.api_secret = env.get("BINANCE_FUTURES_TESTNET_SECRET", "")
         self.base_url = TESTNET_BASE_URL
         self.notional_usd = notional_usd
         self.leverage = leverage
+        self.virtual_capital = virtual_capital
+        self.max_concurrent = max_concurrent
+        self.max_daily_loss = max_daily_loss
         self._init_db()
 
     def _init_db(self) -> None:
@@ -175,16 +189,27 @@ class BinanceFuturesExecutor:
         else:
             logger.warning(f"Failed to set leverage on {symbol}: {l_res}")
 
-    def compute_quantity(self, symbol: str, ref_price: float) -> float:
-        """Compute quantized order quantity matching symbol LOT_SIZE filters."""
-        spec = SYMBOL_SPECS.get(symbol, {"step_size": 0.01, "min_qty": 0.01, "min_notional": 5.0})
-        raw_qty = self.notional_usd / max(ref_price, 1e-6)
-        qty = round_step(raw_qty, spec["step_size"])
-        if qty < spec["min_qty"]:
-            qty = spec["min_qty"]
-        if qty * ref_price < spec["min_notional"]:
-            qty = round_step((spec["min_notional"] + 1.0) / ref_price, spec["step_size"])
-        return qty
+    def compute_quantity(self, symbol: str, ref_price: float) -> tuple[float, float, float]:
+        """Compute quantized order quantity matching symbol LOT_SIZE & MIN_NOTIONAL filters.
+        Returns: (qty, actual_notional, margin_used)
+        """
+        spec = SYMBOL_SPECS.get(symbol, {"step_size": 0.01, "price_tick": 0.01, "min_qty": 0.01, "min_notional": 5.0})
+        step = spec["step_size"]
+        min_notional = spec["min_notional"]
+        min_qty = spec["min_qty"]
+
+        # Ensure target meets Binance minimum notional $5 with safety buffer
+        target = max(self.notional_usd, min_notional + 0.5)
+        raw_qty = target / max(ref_price, 1e-6)
+
+        precision = max(0, int(round(-math.log10(step))))
+        factor = 10 ** precision
+        qty = round(math.ceil(raw_qty * factor - 1e-9) / factor, precision)
+        qty = max(qty, min_qty)
+
+        actual_notional = round(qty * ref_price, 2)
+        margin_used = round(actual_notional / self.leverage, 2)
+        return qty, actual_notional, margin_used
 
     def open_lead_lag_position(
         self,
@@ -196,9 +221,31 @@ class BinanceFuturesExecutor:
         sl_price: float,
     ) -> dict[str, Any] | None:
         """Open a market position with automated TP & SL bracket triggers on testnet."""
+        # 0. Check Bankroll Safeguards ($100 virtual capital limits)
+        with sqlite3.connect(DB_PATH) as con:
+            open_cnt = con.execute("SELECT count(*) FROM testnet_executions WHERE status = 'OPEN'").fetchone()[0]
+            if open_cnt >= self.max_concurrent:
+                logger.warning(
+                    f"Rejecting {symbol} trade: {open_cnt} active positions already open "
+                    f"(capped at {self.max_concurrent} for ${self.virtual_capital:.0f} bankroll limit)"
+                )
+                return None
+
+            today_prefix = datetime.now(UTC).strftime("%Y-%m-%d")
+            loss_sum = con.execute(
+                "SELECT coalesce(sum(pnl_usd), 0.0) FROM testnet_executions WHERE closed_utc LIKE ? AND pnl_usd < 0",
+                (f"{today_prefix}%",)
+            ).fetchone()[0]
+            if abs(loss_sum) >= self.max_daily_loss:
+                logger.warning(
+                    f"Circuit Breaker ACTIVE: Daily realized loss ${abs(loss_sum):.2f} >= max ${self.max_daily_loss:.2f} "
+                    f"(5% of ${self.virtual_capital:.0f} capital). Halting new entries."
+                )
+                return None
+
         self.configure_symbol(symbol)
         spec = SYMBOL_SPECS.get(symbol, {"price_tick": 0.01, "step_size": 0.01})
-        qty = self.compute_quantity(symbol, ref_price)
+        qty, actual_notional, margin_used = self.compute_quantity(symbol, ref_price)
 
         entry_side = "BUY" if direction == "bullish" else "SELL"
         exit_side = "SELL" if direction == "bullish" else "BUY"
@@ -207,7 +254,12 @@ class BinanceFuturesExecutor:
         tp_tick = round_tick(tp_price, spec["price_tick"])
         sl_tick = round_tick(sl_price, spec["price_tick"])
 
-        logger.info(f"Opening Testnet {entry_side} {qty} {symbol} (Target: {tp_tick}, SL: {sl_tick})")
+        margin_pct = round((margin_used / self.virtual_capital) * 100, 1)
+        logger.info(
+            f"Opening Testnet {entry_side} {qty} {symbol} "
+            f"(Notional: ${actual_notional:.2f}, Margin: ${margin_used:.2f} [{margin_pct}% of ${self.virtual_capital:.0f}], "
+            f"TP: {tp_tick}, SL: {sl_tick})"
+        )
 
         # 1. Send Market Entry Order
         entry_res = self._request("POST", "/fapi/v1/order", {
@@ -274,6 +326,9 @@ class BinanceFuturesExecutor:
             "sl_order_id": sl_order_id,
             "entry_price": avg_price,
             "qty": qty,
+            "notional_usd": actual_notional,
+            "margin_used": margin_used,
+            "margin_pct_capital": margin_pct,
         }
 
     def close_position_on_exit(

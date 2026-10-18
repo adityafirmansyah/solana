@@ -572,7 +572,10 @@ def sync_record_lead_lag_prediction(
         )
         testnet_line = ""
         if exec_info:
-            testnet_line = f"\n• **Testnet Order**: `#{exec_info['execution_id']}` · Fill `{exec_info['entry_price']}` (5x Isolated)"
+            testnet_line = (
+                f"\n• **Testnet Exec**: `#{exec_info['execution_id']}` · Fill `{exec_info['entry_price']}` "
+                f"· Margin `${exec_info['margin_used']}` ({exec_info['margin_pct_capital']}% of $100 bankroll · 5x Isolated)"
+            )
 
         metrics = (
             f"⚡ **FSM STATE 4: DISPARITY EXECUTION**\n"
