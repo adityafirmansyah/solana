@@ -30,7 +30,7 @@ UTC = timezone.utc
 WIB = timezone(timedelta(hours=7))
 PORT = 3003
 VIRTUAL_CAPITAL_BASE = 100.0
-LEVERAGE = 5
+LEVERAGE = 10
 
 logger = logging.getLogger("testnet_dashboard")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -122,8 +122,8 @@ def get_stats() -> dict:
             "available_cash": avail,
             "margin_locked": round(margin_locked, 2),
             "target_margin_pct": "3–5%",
-            "target_margin_usd": "$4.00 – $5.50",
-            "target_notional_usd": 20.0,
+            "target_margin_usd": "$3.50 – $5.00",
+            "target_notional_usd": 40.0,
             "leverage": LEVERAGE,
             "max_concurrent": 2,
             "realized_pnl": realized_pnl,

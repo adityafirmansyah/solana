@@ -43,8 +43,8 @@ TESTNET_BASE_URL = "https://testnet.binancefuture.com"
 # Virtual Capital & Safety Parameters
 VIRTUAL_CAPITAL_USD = 100.0          # Strict virtual bankroll: treat equity as $100.00
 TARGET_MARGIN_PCT = 0.04             # 4% target margin per trade (3-5% band = $3.00 - $5.00 margin)
-DEFAULT_LEVERAGE = 5                 # 5x Isolated leverage
-DEFAULT_NOTIONAL_USD = 20.0          # 4% of $100 * 5x = $20.00 notional ($4.00 margin locked)
+DEFAULT_LEVERAGE = 10                # 10x Isolated leverage (scaled up from 5x)
+DEFAULT_NOTIONAL_USD = 40.0          # 4% of $100 * 10x = $40.00 notional (~$4.00 margin locked)
 MAX_CONCURRENT_POSITIONS = 2         # Max 2 concurrent positions (keeps total margin <= $8–$10, 8–10% equity)
 MAX_DAILY_LOSS_USD = 10.0            # Daily circuit breaker: 10% of $100 ($10.00 realized loss)
 

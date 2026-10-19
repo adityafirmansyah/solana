@@ -48,7 +48,7 @@
             BINANCE USDⓈ-M
           </span>
         </div>
-        <p class="text-xs text-slate-400">Strict $100 Bankroll · 3–5% Margin ($4.00–$5.50 / pos) · 5x Isolated · Binance Algo Orders</p>
+        <p class="text-xs text-slate-400">Strict $100 Bankroll · 3–5% Margin ($3.50–$5.00 / pos) · 10x Isolated · Binance Algo Orders</p>
       </div>
     </div>
 
@@ -162,11 +162,11 @@
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Notional:</span>
-          <b id="ruleNotional" class="text-cyan-400 font-semibold">~$20.00 USD</b>
+          <b id="ruleNotional" class="text-cyan-400 font-semibold">~$40.00 USD</b>
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Leverage:</span>
-          <b class="text-amber-400 font-semibold">5x ISOLATED</b>
+          <b class="text-amber-400 font-semibold">10x ISOLATED</b>
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Max Open:</span>
@@ -265,7 +265,7 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 font-mono text-[11px]">
         <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
           <span class="text-amber-400 font-bold block mb-1">1. 3–5% Margin Sizing</span>
-          Target ~$20.00 USD notional per trade. At 5x Isolated, margin locked is ~$4.00–$5.50 (3.0%–5.5% of $100).
+          Target ~$40.00 USD notional per trade. At 10x Isolated, margin locked is ~$3.50–$5.00 (3.5%–5.0% of $100).
         </div>
         <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
           <span class="text-emerald-400 font-bold block mb-1">2. Position Concurrency</span>
@@ -397,7 +397,7 @@
             <td class="py-3 px-4 font-bold text-white flex items-center gap-1.5">
               <span>${pos.symbol}</span>
             </td>
-            <td class="py-3 px-4">${sideBadge} <span class="text-slate-400 text-[10px]">5x Iso</span></td>
+            <td class="py-3 px-4">${sideBadge} <span class="text-slate-400 text-[10px]">10x Iso</span></td>
             <td class="py-3 px-4 text-slate-300">$${pos.entry_price.toFixed(4)}</td>
             <td class="py-3 px-4 text-white font-bold">$${(pos.mark_price || pos.entry_price).toFixed(4)}</td>
             <td class="py-3 px-4 text-slate-300">${pos.entry_qty} ($${pos.notional_usd.toFixed(2)})</td>
