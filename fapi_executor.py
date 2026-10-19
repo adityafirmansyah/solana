@@ -327,7 +327,15 @@ class BinanceFuturesExecutor:
             return None
 
         entry_order_id = str(entry_res["orderId"])
+        # Query actual average execution fill price from Binance order if available
         avg_price = float(entry_res.get("avgPrice") or 0.0)
+        if avg_price <= 0:
+            try:
+                # Query order details to get real executed price
+                o_detail = self._request("GET", "/fapi/v1/order", {"symbol": symbol, "orderId": entry_order_id})
+                avg_price = float(o_detail.get("avgPrice") or 0.0)
+            except Exception:
+                pass
         if avg_price <= 0:
             avg_price = ref_price
 
@@ -451,12 +459,43 @@ class BinanceFuturesExecutor:
                 logger.error(f"Error flattening position for {symbol}: {e}")
 
             # Calculate realized PnL
-            if direction == "bullish":
-                pnl_usd = (realized_price - entry_price) * entry_qty
-                pnl_pct = (realized_price - entry_price) / entry_price * 100 * self.leverage
+            # Fetch actual realized PnL and commissions directly from Binance userTrades to account for real slippage & spread
+            actual_realized_pnl = 0.0
+            actual_commission = 0.0
+            found_exchange_pnl = False
+            try:
+                # Query userTrades for this symbol around trade lifetime
+                trade_created_ts = int(datetime.fromisoformat(row["created_utc"]).timestamp() * 1000) - 5000
+                recent_trades = self._request("GET", "/fapi/v1/userTrades", {
+                    "symbol": symbol,
+                    "startTime": trade_created_ts,
+                    "limit": 50,
+                })
+                if isinstance(recent_trades, list) and recent_trades:
+                    for t in recent_trades:
+                        rp = float(t.get("realizedPnl", 0.0))
+                        comm = float(t.get("commission", 0.0))
+                        actual_commission += comm
+                        if rp != 0.0:
+                            actual_realized_pnl += rp
+                            found_exchange_pnl = True
+            except Exception as e:
+                logger.warning(f"Failed to fetch exchange userTrades for PnL reconciliation: {e}")
+
+            if found_exchange_pnl:
+                # Net realized PnL directly from Binance (accounting for spread, slippage & fee)
+                pnl_usd = actual_realized_pnl - actual_commission
+                notional_init = entry_price * entry_qty
+                pnl_pct = (pnl_usd / (notional_init / self.leverage)) * 100 if notional_init > 0 else 0.0
+                logger.info(f"Reconciled Real PnL from Binance for {symbol} #{prediction_id}: Realized={actual_realized_pnl:+.4f}, Fee={actual_commission:.4f} -> Net=${pnl_usd:+.4f}")
             else:
-                pnl_usd = (entry_price - realized_price) * entry_qty
-                pnl_pct = (entry_price - realized_price) / entry_price * 100 * self.leverage
+                # Fallback to tick difference if trade query returns nothing
+                if direction == "bullish":
+                    pnl_usd = (realized_price - entry_price) * entry_qty
+                    pnl_pct = (realized_price - entry_price) / entry_price * 100 * self.leverage
+                else:
+                    pnl_usd = (entry_price - realized_price) * entry_qty
+                    pnl_pct = (entry_price - realized_price) / entry_price * 100 * self.leverage
 
             now_utc = datetime.now(UTC).isoformat(timespec="seconds")
             con.execute("""

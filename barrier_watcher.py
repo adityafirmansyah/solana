@@ -86,6 +86,7 @@ FOLLOWER_COOLDOWN_SECS = 900.0        # 15 minutes cooldown per follower symbol
 GLOBAL_CLUSTER_COOLDOWN_SECS = 180.0   # 3 minutes cooldown across ANY follower to prevent cluster cascade
 MAX_CONCURRENT_SAME_DIR_TRADES = 1     # Max 1 active trade per direction across all followers
 EXHAUSTION_BTC_60S_MOVE_PCT = 0.20    # BTC already moved >= 0.20% in 60s -> climax/exhaustion guard
+MAX_SPREAD_PCT = 0.08                  # Max allowable bid/ask spread (0.08%) to prevent slippage trap on market entry
 MAX_HOLDING_SECS = 360.0              # 6 minutes max holding time-stop for micro lead-lag (was 7200s / 2h)
 
 # Notification Cooldown / Debounce guards
@@ -846,6 +847,21 @@ class MultiCoinLeadLagWatcher:
             f_hist = list(self.rolling_1s[follower])
             if len(f_hist) < 30:
                 continue
+
+            # Spread Guard: check current ticker spread on exchange if executor is active
+            if FAPI_EXECUTOR:
+                depth = FAPI_EXECUTOR._request("GET", "/fapi/v1/depth", {"symbol": follower, "limit": 5})
+                bids = depth.get("bids", [])
+                asks = depth.get("asks", [])
+                if bids and asks:
+                    best_bid = float(bids[0][0])
+                    best_ask = float(asks[0][0])
+                    spread_pct = ((best_ask - best_bid) / best_bid) * 100.0 if best_bid > 0 else 0.0
+                    if spread_pct > MAX_SPREAD_PCT:
+                        logger.warning(
+                            f"⚠️ Spread Guard BLOCKED {follower} entry: spread={spread_pct:.3f}% > {MAX_SPREAD_PCT}%. Skipping illiquid book."
+                        )
+                        continue
 
             f_now = f_hist[-1]["close"]
             if f_now <= 0:
