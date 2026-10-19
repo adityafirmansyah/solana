@@ -79,14 +79,14 @@ TAKER_RATIO_BULLISH = 0.60            # Taker Buy ratio >= 60%
 TAKER_RATIO_BEARISH = 0.40            # Taker Buy ratio <= 40% (Sell >= 60%)
 ARMED_VELOCITY_MIN_PCT = 0.08         # BTC move >= 0.08%
 ARMED_VELOCITY_MAX_PCT = 0.12         # BTC move <= 0.12%
-DISPARITY_IMPULSE_MIN_PCT = 0.12      # Leader breakout impulse >= 0.12% - 0.15%
-FOLLOWER_LAG_MAX_PCT = 0.05           # Lagging follower moved < 0.05%
+DISPARITY_IMPULSE_MIN_PCT = 0.10      # Leader breakout impulse >= 0.10% (lowered from 0.12% for faster response)
+FOLLOWER_LAG_MAX_PCT = 0.04           # Lagging follower moved < 0.04%
 STATE_3_TTL_SECS = 45.0               # ARMED_VELOCITY timeout (45s TTL)
 FOLLOWER_COOLDOWN_SECS = 900.0        # 15 minutes cooldown per follower symbol
 GLOBAL_CLUSTER_COOLDOWN_SECS = 180.0   # 3 minutes cooldown across ANY follower to prevent cluster cascade
 MAX_CONCURRENT_SAME_DIR_TRADES = 1     # Max 1 active trade per direction across all followers
-EXHAUSTION_BTC_60S_MOVE_PCT = 0.25    # BTC already moved >= 0.25% in 60s -> climax/exhaustion guard
-MAX_HOLDING_SECS = 7200.0             # 2 hours max holding time-stop
+EXHAUSTION_BTC_60S_MOVE_PCT = 0.20    # BTC already moved >= 0.20% in 60s -> climax/exhaustion guard
+MAX_HOLDING_SECS = 360.0              # 6 minutes max holding time-stop for micro lead-lag (was 7200s / 2h)
 
 # Notification Cooldown / Debounce guards
 STATE_1_COOLDOWN_SECS = 900.0         # 15 minutes cooldown between SQUEEZE reports
@@ -477,10 +477,15 @@ def sync_record_lead_lag_prediction(
     if atr_val <= 0:
         atr_val = ref_price * 0.005
 
-    tp_mult = 1.5
-    sl_mult = 1.0
-    tp_pts = round(tp_mult * atr_val, 6)
-    sl_pts = round(sl_mult * atr_val, 6)
+    # Calibrated micro-TP & SL for high-frequency lead-lag disparity capture
+    tp_mult = 0.5
+    sl_mult = 0.5
+    raw_tp_pts = tp_mult * atr_val
+    raw_sl_pts = sl_mult * atr_val
+
+    # Bounded targets: TP between 0.35% and 0.75%, SL between 0.30% and 0.65%
+    tp_pts = round(max(ref_price * 0.0035, min(ref_price * 0.0075, raw_tp_pts)), 6)
+    sl_pts = round(max(ref_price * 0.0030, min(ref_price * 0.0065, raw_sl_pts)), 6)
 
     if direction == "bullish":
         tp_price = round(ref_price + tp_pts, 6)
@@ -839,9 +844,31 @@ class MultiCoinLeadLagWatcher:
             if len(f_hist) < 30:
                 continue
 
+            f_now = f_hist[-1]["close"]
+            if f_now <= 0:
+                continue
+
+            # 1. Follower Pre-Expansion Guard (60s): must not have already expanded >= 0.15% in impulse direction
+            if len(f_hist) >= 60:
+                f_60_start = f_hist[-60]["open"]
+                if f_60_start > 0:
+                    f_60_move = (f_now - f_60_start) / f_60_start * 100.0
+                    f_60_dir = f_60_move if direction == "bullish" else -f_60_move
+                    if f_60_dir >= 0.15:
+                        logger.info(f"Follower {follower} already expanded {f_60_dir:+.2f}% in 60s. Skipping (exhaustion risk).")
+                        continue
+
+            # 2. Follower Micro-Lag Guard (12s): must not have already moved >= 0.035% in impulse direction
+            if len(f_hist) >= 12:
+                f_12_start = f_hist[-12]["open"]
+                if f_12_start > 0:
+                    f_12_move = (f_now - f_12_start) / f_12_start * 100.0
+                    f_12_dir = f_12_move if direction == "bullish" else -f_12_move
+                    if f_12_dir >= 0.035:
+                        continue
+
             f_30 = f_hist[-30:]
             f_start = f_30[0]["open"]
-            f_now = f_30[-1]["close"]
             if f_start <= 0:
                 continue
 
@@ -850,13 +877,13 @@ class MultiCoinLeadLagWatcher:
             # Follower move in direction of impulse
             realized_dir_move = follower_move_pct if direction == "bullish" else -follower_move_pct
 
-            # Follower lag check: follower moved < 0.05%
+            # Follower lag check: follower moved < 0.04%
             if realized_dir_move >= FOLLOWER_LAG_MAX_PCT:
                 continue
 
             # Disparity: impulse minus realized move
             disparity = abs_btc_move - max(0.0, realized_dir_move)
-            if disparity < 0.04:
+            if disparity < 0.03:
                 continue
 
             atr = self.baselines[follower].get("atr") or (f_now * 0.005)
@@ -950,6 +977,14 @@ class MultiCoinLeadLagWatcher:
         btc_20s_move_pct = (w20_btc[-1]["close"] - w20_btc[0]["open"]) / w20_btc[0]["open"] * 100.0
         abs_btc_20s = abs(btc_20s_move_pct)
 
+        # 15-second responsive velocity window for BTC
+        w15_btc = btc_hist[-15:] if len(btc_hist) >= 15 else w30[-15:]
+        btc_15s_move_pct = (w15_btc[-1]["close"] - w15_btc[0]["open"]) / w15_btc[0]["open"] * 100.0 if w15_btc[0]["open"] > 0 else 0.0
+        abs_btc_15s = abs(btc_15s_move_pct)
+        vol_15s = sum(x["vol"] for x in w15_btc)
+        baseline_15s_btc = max(1e-6, baseline_1s_btc * len(w15_btc))
+        vol_ratio_15s = vol_15s / baseline_15s_btc
+
         eth_hist = list(self.rolling_1s["ETHUSDT"])
         eth_20s_move_pct = 0.0
         if len(eth_hist) >= 20:
@@ -987,10 +1022,10 @@ class MultiCoinLeadLagWatcher:
             btc_5s_move_pct = (w5_btc[-1]["close"] - w5_btc[0]["open"]) / w5_btc[0]["open"] * 100.0
             abs_btc_5s = abs(btc_5s_move_pct)
 
-            # Burst criteria: Volume >= 4.5x baseline in 5s with sharp delta sweep (>75% taker buy or <25% taker sell)
-            # and price impulse >= 0.07%
-            is_burst_bull = (vol_ratio_5s >= 4.5 and taker_ratio_5s >= 0.75 and btc_5s_move_pct >= 0.07)
-            is_burst_bear = (vol_ratio_5s >= 4.5 and taker_ratio_5s <= 0.25 and btc_5s_move_pct <= -0.07)
+            # Burst criteria: Volume >= 4.0x baseline in 5s with delta sweep (>70% taker buy or <30% taker sell)
+            # and price impulse >= 0.06% (calibrated for faster capture before exhaustion)
+            is_burst_bull = (vol_ratio_5s >= 4.0 and taker_ratio_5s >= 0.70 and btc_5s_move_pct >= 0.06)
+            is_burst_bear = (vol_ratio_5s >= 4.0 and taker_ratio_5s <= 0.30 and btc_5s_move_pct <= -0.06)
 
             if is_burst_bull or is_burst_bear:
                 burst_dir = "bullish" if is_burst_bull else "bearish"
@@ -1004,9 +1039,16 @@ class MultiCoinLeadLagWatcher:
         # Path to State 4: DISPARITY_EXECUTION
         # (Can fire from ARMED_VELOCITY or directly when strong impulse sweep occurs)
         if self.state in (EngineState.ARMED_VELOCITY, EngineState.ACCUMULATION_BUILDUP):
-            direction = "bullish" if btc_30s_move_pct > 0 else "bearish"
-            if abs_btc_30s >= DISPARITY_IMPULSE_MIN_PCT and vol_ratio_30 >= ACCUMULATION_MIN_VOL_RATIO:
-                candidate = self.find_best_lagging_follower(direction, abs_btc_30s, btc_30s_move_pct, vol_ratio_30)
+            direction = "bullish" if btc_15s_move_pct > 0 else "bearish"
+            # 15s responsive impulse OR 30s standard impulse
+            is_impulse_15s = (abs_btc_15s >= DISPARITY_IMPULSE_MIN_PCT and vol_ratio_15s >= ACCUMULATION_MIN_VOL_RATIO)
+            is_impulse_30s = (abs_btc_30s >= DISPARITY_IMPULSE_MIN_PCT and vol_ratio_30 >= ACCUMULATION_MIN_VOL_RATIO)
+            if is_impulse_15s or is_impulse_30s:
+                use_15s = is_impulse_15s and (abs_btc_15s >= abs_btc_30s * 0.8)
+                cand_abs = abs_btc_15s if use_15s else abs_btc_30s
+                cand_move = btc_15s_move_pct if use_15s else btc_30s_move_pct
+                cand_vol = vol_ratio_15s if use_15s else vol_ratio_30
+                candidate = self.find_best_lagging_follower(direction, cand_abs, cand_move, cand_vol)
                 if candidate:
                     self.execute_state_4(candidate)
                     return
@@ -1238,6 +1280,10 @@ async def main():
     watcher.check_db_update(force=True)
     await watcher.reconcile_startup()
     await watcher.seed_startup_history()
+
+    if FAPI_EXECUTOR:
+        logger.info("Preconfiguring margin & leverage for all follower symbols at startup...")
+        await asyncio.to_thread(FAPI_EXECUTOR.preconfigure_symbols, FOLLOWERS)
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):

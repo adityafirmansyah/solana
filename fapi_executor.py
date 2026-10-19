@@ -99,6 +99,7 @@ class BinanceFuturesExecutor:
         self.virtual_capital = virtual_capital
         self.max_concurrent = max_concurrent
         self.max_daily_loss = max_daily_loss
+        self._configured_symbols: set[str] = set()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -178,6 +179,9 @@ class BinanceFuturesExecutor:
 
     def configure_symbol(self, symbol: str) -> None:
         """Ensure ISOLATED margin type and target leverage."""
+        if symbol in self._configured_symbols:
+            return
+
         # 1. Margin Type
         m_res = self._request("POST", "/fapi/v1/marginType", {"symbol": symbol, "marginType": "ISOLATED"})
         if m_res.get("code") not in (200, -4046):  # -4046: No need to change margin type
@@ -189,6 +193,16 @@ class BinanceFuturesExecutor:
             logger.info(f"{symbol} leverage configured to {l_res['leverage']}x")
         else:
             logger.warning(f"Failed to set leverage on {symbol}: {l_res}")
+
+        self._configured_symbols.add(symbol)
+
+    def preconfigure_symbols(self, symbols: list[str]) -> None:
+        """Preconfigure margin and leverage for all symbols at startup to eliminate REST latency on entry."""
+        for s in symbols:
+            try:
+                self.configure_symbol(s)
+            except Exception as e:
+                logger.warning(f"Failed to preconfigure {s}: {e}")
 
     def compute_quantity(self, symbol: str, ref_price: float) -> tuple[float, float, float]:
         """Compute quantized order quantity matching symbol LOT_SIZE & MIN_NOTIONAL filters.
