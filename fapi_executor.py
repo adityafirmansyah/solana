@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from settings import get_settings
+
 UTC = timezone.utc
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
@@ -84,23 +86,56 @@ def round_tick(val: float, tick: float) -> float:
 class BinanceFuturesExecutor:
     def __init__(
         self,
-        notional_usd: float = DEFAULT_NOTIONAL_USD,
-        leverage: int = DEFAULT_LEVERAGE,
-        virtual_capital: float = VIRTUAL_CAPITAL_USD,
-        max_concurrent: int = MAX_CONCURRENT_POSITIONS,
-        max_daily_loss: float = MAX_DAILY_LOSS_USD,
+        notional_usd: float | None = None,
+        leverage: int | None = None,
+        virtual_capital: float | None = None,
+        max_concurrent: int | None = None,
+        max_daily_loss: float | None = None,
     ):
         env = load_env()
         self.api_key = env.get("BINANCE_FUTURES_TESTNET_KEY", "")
         self.api_secret = env.get("BINANCE_FUTURES_TESTNET_SECRET", "")
         self.base_url = TESTNET_BASE_URL
-        self.notional_usd = notional_usd
-        self.leverage = leverage
-        self.virtual_capital = virtual_capital
-        self.max_concurrent = max_concurrent
-        self.max_daily_loss = max_daily_loss
+
+        # Load dynamic settings from state/settings.json
+        s = get_settings()
+        self.notional_usd = notional_usd if notional_usd is not None else float(s.get("target_notional_usd", DEFAULT_NOTIONAL_USD))
+        self.leverage = leverage if leverage is not None else int(s.get("leverage", DEFAULT_LEVERAGE))
+        self.virtual_capital = virtual_capital if virtual_capital is not None else float(s.get("virtual_capital", VIRTUAL_CAPITAL_USD))
+        self.max_concurrent = max_concurrent if max_concurrent is not None else int(s.get("max_concurrent", MAX_CONCURRENT_POSITIONS))
+        self.max_daily_loss = max_daily_loss if max_daily_loss is not None else float(s.get("max_daily_loss", MAX_DAILY_LOSS_USD))
         self._configured_symbols: set[str] = set()
         self._init_db()
+
+    def reload_settings(self) -> None:
+        """Reload dynamic settings from state/settings.json."""
+        try:
+            s = get_settings()
+            new_lev = int(s.get("leverage", self.leverage))
+            if new_lev != self.leverage:
+                logger.info(f"Dynamically updating leverage from {self.leverage}x to {new_lev}x")
+                self.leverage = new_lev
+                self._configured_symbols.clear()
+            self.notional_usd = float(s.get("target_notional_usd", self.notional_usd))
+            self.virtual_capital = float(s.get("virtual_capital", self.virtual_capital))
+            self.max_concurrent = int(s.get("max_concurrent", self.max_concurrent))
+            self.max_daily_loss = float(s.get("max_daily_loss", self.max_daily_loss))
+        except Exception as e:
+            logger.warning(f"Failed to reload settings: {e}")
+
+    def apply_leverage_to_symbols(self, leverage: int, symbols: list[str]) -> dict[str, Any]:
+        """Apply leverage change directly to Binance Futures testnet across symbols."""
+        results = {}
+        self.leverage = leverage
+        self._configured_symbols.clear()
+        for sym in symbols:
+            try:
+                res = self._request("POST", "/fapi/v1/leverage", {"symbol": sym, "leverage": leverage})
+                results[sym] = {"status": "ok", "leverage": res.get("leverage", leverage)}
+                self._configured_symbols.add(sym)
+            except Exception as e:
+                results[sym] = {"status": "error", "error": str(e)}
+        return results
 
     def _init_db(self) -> None:
         """Create unchained execution tracking table if it doesn't exist."""
@@ -206,9 +241,10 @@ class BinanceFuturesExecutor:
 
     def compute_quantity(self, symbol: str, ref_price: float) -> tuple[float, float, float]:
         """Compute quantized order quantity matching symbol LOT_SIZE & MIN_NOTIONAL filters.
-        Targets 3-5% margin ($3.00 - $5.00) of $100 bankroll at 5x leverage (~$15 - $25 notional).
+        Targets configured margin and leverage from dynamic settings.
         Returns: (qty, actual_notional, margin_used)
         """
+        self.reload_settings()
         spec = SYMBOL_SPECS.get(symbol, {"step_size": 0.01, "price_tick": 0.01, "min_qty": 0.01, "min_notional": 5.0})
         step = spec["step_size"]
         min_notional = spec["min_notional"]
@@ -237,6 +273,7 @@ class BinanceFuturesExecutor:
         sl_price: float,
     ) -> dict[str, Any] | None:
         """Open a market position with automated TP & SL bracket triggers on testnet."""
+        self.reload_settings()
         # 0. Check Bankroll Safeguards ($100 virtual capital limits)
         with sqlite3.connect(DB_PATH) as con:
             open_cnt = con.execute("SELECT count(*) FROM testnet_executions WHERE status = 'OPEN'").fetchone()[0]

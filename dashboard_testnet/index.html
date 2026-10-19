@@ -68,6 +68,10 @@
         <span class="text-slate-400">WIB:</span>
         <span id="clockWib" class="text-amber-400 font-medium">--:--:--</span>
       </div>
+      <button onclick="openSettingsModal()" class="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 font-sans transition flex items-center gap-1.5 font-medium">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span>Settings</span>
+      </button>
       <button onclick="refreshData()" class="px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 font-sans transition flex items-center gap-1.5">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         Refresh
@@ -152,7 +156,7 @@
       <div class="flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-amber-400"></span>
         <span class="text-amber-300 font-bold tracking-tight">Active Sizing Rules:</span>
-        <span class="text-slate-300">Bankroll <b class="text-white font-bold">$100.00 USD</b></span>
+        <span class="text-slate-300">Bankroll <b id="ruleBankroll" class="text-white font-bold">$100.00 USD</b></span>
       </div>
       <div class="flex flex-wrap items-center gap-2.5 text-[11px]">
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
@@ -166,7 +170,7 @@
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Leverage:</span>
-          <b class="text-amber-400 font-semibold">10x ISOLATED</b>
+          <b id="ruleLeverage" class="text-amber-400 font-semibold">10x ISOLATED</b>
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Risk:Reward:</span>
@@ -178,8 +182,8 @@
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Max Open:</span>
-          <b class="text-purple-400 font-semibold">2 Positions</b>
-          <span class="text-slate-500">(&le; $10 Margin)</span>
+          <b id="ruleMaxOpen" class="text-purple-400 font-semibold">2 Positions</b>
+          <span id="ruleMaxMargin" class="text-slate-500">(&le; $10 Margin)</span>
         </div>
         <div class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
           <span class="text-slate-400">Circuit Loss:</span>
@@ -374,6 +378,17 @@
       if (data.target_margin_usd) document.getElementById('ruleMarginUsd').innerText = '(' + data.target_margin_usd + ')';
       if (data.target_notional_usd) document.getElementById('ruleNotional').innerText = '~$' + Number(data.target_notional_usd).toFixed(2) + ' USD';
       if (data.circuit_breaker_limit) document.getElementById('ruleCircuit').innerText = '$' + Number(data.circuit_breaker_limit).toFixed(2) + ' (10%)';
+
+      if (data.settings) {
+        const s = data.settings;
+        if (s.virtual_capital) document.getElementById('ruleBankroll').innerText = '$' + Number(s.virtual_capital).toFixed(2) + ' USD';
+        if (s.leverage) document.getElementById('ruleLeverage').innerText = s.leverage + 'x ISOLATED';
+        if (s.max_concurrent) {
+          document.getElementById('ruleMaxOpen').innerText = s.max_concurrent + ' Positions';
+          const maxMarg = (s.margin_per_trade_usd || 4.0) * s.max_concurrent;
+          document.getElementById('ruleMaxMargin').innerText = '(≤ $' + maxMarg.toFixed(0) + ' Margin)';
+        }
+      }
     }
 
     function renderPositions(positions) {
@@ -476,6 +491,310 @@
     // Auto refresh every 3 seconds
     refreshData();
     setInterval(refreshData, 3000);
+
+    // Settings Modal Logic
+    let currentSettings = null;
+
+    async function openSettingsModal() {
+      const modal = document.getElementById('settingsModal');
+      modal.classList.remove('hidden');
+      clearNotice();
+
+      try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+          currentSettings = await res.json();
+          populateSettingsForm(currentSettings);
+        }
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+      }
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.add('hidden');
+    }
+
+    // Close on backdrop click or ESC key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSettingsModal();
+    });
+
+    function populateSettingsForm(s) {
+      if (!s) return;
+      const lev = s.leverage || 10;
+      document.getElementById('inputLeverageSlider').value = lev;
+      document.getElementById('inputLeverageNumber').value = lev;
+      document.getElementById('leverageDisplay').innerText = lev + 'x';
+
+      document.getElementById('inputMarginPerTrade').value = (s.margin_per_trade_usd || 4.0).toFixed(2);
+      document.getElementById('inputTargetNotional').value = (s.target_notional_usd || 40.0).toFixed(2);
+      document.getElementById('inputVirtualCapital').value = (s.virtual_capital || 100.0).toFixed(2);
+      document.getElementById('inputMaxConcurrent').value = s.max_concurrent || 2;
+      document.getElementById('inputMaxDailyLoss').value = (s.max_daily_loss || 10.0).toFixed(2);
+
+      recalcMatrix();
+    }
+
+    function onLeverageChange(val) {
+      val = Math.max(1, Math.min(50, parseInt(val) || 1));
+      document.getElementById('inputLeverageSlider').value = val;
+      document.getElementById('inputLeverageNumber').value = val;
+      document.getElementById('leverageDisplay').innerText = val + 'x';
+
+      const margin = parseFloat(document.getElementById('inputMarginPerTrade').value) || 4.0;
+      const notional = (margin * val).toFixed(2);
+      document.getElementById('inputTargetNotional').value = notional;
+      recalcMatrix();
+    }
+
+    function onMarginChange(val) {
+      const margin = Math.max(0.5, parseFloat(val) || 0.5);
+      const lev = parseInt(document.getElementById('inputLeverageNumber').value) || 10;
+      const notional = (margin * lev).toFixed(2);
+      document.getElementById('inputTargetNotional').value = notional;
+      recalcMatrix();
+    }
+
+    function onNotionalChange(val) {
+      const notional = Math.max(5.0, parseFloat(val) || 5.0);
+      const lev = parseInt(document.getElementById('inputLeverageNumber').value) || 10;
+      const margin = (notional / lev).toFixed(2);
+      document.getElementById('inputMarginPerTrade').value = margin;
+      recalcMatrix();
+    }
+
+    function recalcMatrix() {
+      const lev = parseInt(document.getElementById('inputLeverageNumber').value) || 10;
+      const margin = parseFloat(document.getElementById('inputMarginPerTrade').value) || 4.0;
+      const notional = parseFloat(document.getElementById('inputTargetNotional').value) || (margin * lev);
+      const capital = parseFloat(document.getElementById('inputVirtualCapital').value) || 100.0;
+      const maxConc = parseInt(document.getElementById('inputMaxConcurrent').value) || 2;
+
+      const marginPct = ((margin / capital) * 100).toFixed(1);
+      document.getElementById('marginPctHint').innerText = marginPct + '% of $' + capital.toFixed(0) + ' Bankroll';
+
+      document.getElementById('matrixTradeNotional').innerText = '$' + notional.toFixed(2);
+      document.getElementById('matrixTradeMargin').innerText = '$' + margin.toFixed(2);
+
+      const maxExposure = notional * maxConc;
+      const maxLockedMargin = margin * maxConc;
+      const maxLockedPct = ((maxLockedMargin / capital) * 100).toFixed(1);
+
+      document.getElementById('matrixMaxExposure').innerText = '$' + maxExposure.toFixed(2);
+      document.getElementById('matrixMaxMargin').innerText = '$' + maxLockedMargin.toFixed(2) + ' (' + maxLockedPct + '%)';
+
+      const badge = document.getElementById('matrixStatusBadge');
+      if (notional < 5.0) {
+        badge.innerText = '⚠️ NOTIONAL < $5 (BINANCE MIN)';
+        badge.className = 'text-amber-400 font-semibold';
+      } else if (maxLockedMargin > capital * 0.5) {
+        badge.innerText = '⚠️ HIGH MARGIN EXPOSURE (>50%)';
+        badge.className = 'text-rose-400 font-semibold';
+      } else {
+        badge.innerText = '✓ SAFE BOUNDS';
+        badge.className = 'text-emerald-400 font-semibold';
+      }
+    }
+
+    function showNotice(msg, isError = false) {
+      const el = document.getElementById('settingsNotice');
+      el.classList.remove('hidden');
+      if (isError) {
+        el.className = 'p-3 rounded-lg text-xs font-mono border bg-rose-500/10 text-rose-300 border-rose-500/30';
+      } else {
+        el.className = 'p-3 rounded-lg text-xs font-mono border bg-emerald-500/10 text-emerald-300 border-emerald-500/30';
+      }
+      el.innerText = msg;
+    }
+
+    function clearNotice() {
+      const el = document.getElementById('settingsNotice');
+      el.classList.add('hidden');
+      el.innerText = '';
+    }
+
+    async function saveSettingsForm(e) {
+      e.preventDefault();
+      clearNotice();
+
+      const btn = document.getElementById('btnSaveSettings');
+      const spinner = document.getElementById('saveSpinner');
+      const btnText = document.getElementById('saveBtnText');
+
+      btn.disabled = true;
+      spinner.classList.remove('hidden');
+      btnText.innerText = 'Syncing to Binance...';
+
+      const payload = {
+        leverage: parseInt(document.getElementById('inputLeverageNumber').value),
+        margin_per_trade_usd: parseFloat(document.getElementById('inputMarginPerTrade').value),
+        target_notional_usd: parseFloat(document.getElementById('inputTargetNotional').value),
+        virtual_capital: parseFloat(document.getElementById('inputVirtualCapital').value),
+        max_concurrent: parseInt(document.getElementById('inputMaxConcurrent').value),
+        max_daily_loss: parseFloat(document.getElementById('inputMaxDailyLoss').value),
+      };
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          showNotice('✓ Settings saved successfully! Leverage synced to Binance Futures testnet.', false);
+          setTimeout(() => {
+            closeSettingsModal();
+            refreshData();
+          }, 1200);
+        } else {
+          showNotice('❌ Error: ' + (data.message || 'Failed to save settings'), true);
+        }
+      } catch (err) {
+        showNotice('❌ Network error: ' + err.message, true);
+      } finally {
+        btn.disabled = false;
+        spinner.classList.add('hidden');
+        btnText.innerText = 'Save & Sync to Binance';
+      }
+    }
   </script>
+
+  <!-- Settings & Risk Controls Modal -->
+  <div id="settingsModal" onclick="if(event.target===this)closeSettingsModal()" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-xl rounded-2xl shadow-2xl border border-slate-700/80 bg-[#0e1524] text-slate-100 overflow-hidden transform transition-all">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-border flex items-center justify-between bg-slate-900/80">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-sm">
+            ⚙️
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white tracking-tight">Bot Sizing & Risk Settings</h3>
+            <p class="text-[11px] text-slate-400">Configure leverage, margin per trade, and capital limits</p>
+          </div>
+        </div>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="settingsForm" onsubmit="saveSettingsForm(event)" class="p-6 space-y-5">
+        <!-- Notification / Toast within modal -->
+        <div id="settingsNotice" class="hidden p-3 rounded-lg text-xs font-mono border"></div>
+
+        <!-- 1. Leverage Setting -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-semibold text-slate-200">Leverage (ISOLATED)</label>
+            <span class="text-xs font-mono font-bold text-amber-400" id="leverageDisplay">10x</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <input type="range" id="inputLeverageSlider" min="1" max="50" step="1" value="10" 
+                   oninput="onLeverageChange(this.value)" class="flex-1 accent-amber-500 cursor-pointer">
+            <input type="number" id="inputLeverageNumber" min="1" max="50" step="1" value="10" 
+                   oninput="onLeverageChange(this.value)" class="w-16 px-2.5 py-1 text-center text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <!-- Quick Presets -->
+          <div class="flex items-center gap-1.5 mt-2">
+            <span class="text-[10px] text-slate-400 mr-1">Presets:</span>
+            <button type="button" onclick="onLeverageChange(3)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">3x</button>
+            <button type="button" onclick="onLeverageChange(5)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">5x</button>
+            <button type="button" onclick="onLeverageChange(10)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-amber-400 border border-amber-500/30">10x</button>
+            <button type="button" onclick="onLeverageChange(15)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">15x</button>
+            <button type="button" onclick="onLeverageChange(20)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">20x</button>
+          </div>
+          <p class="text-[10px] text-slate-500 mt-1">Changes are automatically submitted to Binance Futures Testnet for all active follower coins.</p>
+        </div>
+
+        <!-- 2. Margin & Sizing Row -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Margin per Trade ($ USD)</label>
+            <div class="relative">
+              <span class="absolute left-3 top-2 text-xs text-slate-500">$</span>
+              <input type="number" id="inputMarginPerTrade" min="0.5" max="1000" step="0.5" value="4.00" 
+                     oninput="onMarginChange(this.value)"
+                     class="w-full pl-7 pr-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+            </div>
+            <span id="marginPctHint" class="text-[10px] text-emerald-400 mt-1 block font-mono">4.0% of $100 Bankroll</span>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Target Notional Size ($ USD)</label>
+            <div class="relative">
+              <span class="absolute left-3 top-2 text-xs text-slate-500">$</span>
+              <input type="number" id="inputTargetNotional" min="5.0" max="50000" step="1.0" value="40.00" 
+                     oninput="onNotionalChange(this.value)"
+                     class="w-full pl-7 pr-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 focus:outline-none focus:border-cyan-500">
+            </div>
+            <span class="text-[10px] text-slate-400 mt-1 block font-mono">Min $5.00 (Binance Filter)</span>
+          </div>
+        </div>
+
+        <!-- 3. Capital & Risk Safeguards -->
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Virtual Bankroll ($)</label>
+            <input type="number" id="inputVirtualCapital" min="10" max="100000" step="10" value="100.00" 
+                   oninput="recalcMatrix()"
+                   class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Max Concurrent</label>
+            <input type="number" id="inputMaxConcurrent" min="1" max="10" step="1" value="2" 
+                   oninput="recalcMatrix()"
+                   class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Daily Max Loss ($)</label>
+            <input type="number" id="inputMaxDailyLoss" min="1" max="1000" step="1" value="10.00" 
+                   class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-rose-400 focus:outline-none focus:border-rose-500">
+          </div>
+        </div>
+
+        <!-- 4. Dynamic Risk Matrix Card -->
+        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs font-mono">
+          <div class="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800/80 pb-1.5">
+            <span class="font-bold text-slate-300">Live Risk Calculation Matrix</span>
+            <span id="matrixStatusBadge" class="text-emerald-400 font-semibold">✓ SAFE BOUNDS</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div>
+              <span class="text-slate-500">Per-Trade Notional:</span>
+              <span id="matrixTradeNotional" class="text-cyan-400 font-bold ml-1">$40.00</span>
+            </div>
+            <div>
+              <span class="text-slate-500">Per-Trade Margin:</span>
+              <span id="matrixTradeMargin" class="text-amber-400 font-bold ml-1">$4.00</span>
+            </div>
+            <div>
+              <span class="text-slate-500">Max Portfolio Exposure:</span>
+              <span id="matrixMaxExposure" class="text-slate-300 font-bold ml-1">$80.00</span>
+            </div>
+            <div>
+              <span class="text-slate-500">Max Margin Locked:</span>
+              <span id="matrixMaxMargin" class="text-purple-400 font-bold ml-1">$8.00 (8.0%)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+          <button type="button" onclick="closeSettingsModal()" 
+                  class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition">
+            Cancel
+          </button>
+          <button type="submit" id="btnSaveSettings"
+                  class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+            <svg id="saveSpinner" class="w-3.5 h-3.5 animate-spin hidden" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span id="saveBtnText">Save & Sync to Binance</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>

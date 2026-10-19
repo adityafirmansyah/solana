@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from settings import get_settings, save_settings, validate_settings
+
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "solana.db"
 TEMPLATE_DIR = BASE_DIR / "dashboard_testnet"
@@ -71,6 +73,15 @@ def get_db():
 def get_stats() -> dict:
     today_prefix = datetime.now(UTC).strftime("%Y-%m-%d")
     tickers = get_live_tickers()
+    s = get_settings()
+
+    leverage = int(s.get("leverage", 10))
+    virtual_base = float(s.get("virtual_capital", 100.0))
+    target_notional = float(s.get("target_notional_usd", 40.0))
+    margin_per_trade = float(s.get("margin_per_trade_usd", 4.0))
+    margin_pct = round((margin_per_trade / virtual_base) * 100, 1)
+    max_concurrent = int(s.get("max_concurrent", 2))
+    circuit_limit = float(s.get("max_daily_loss", 10.0))
 
     con = get_db()
     try:
@@ -103,7 +114,7 @@ def get_stats() -> dict:
             qty = float(r["entry_qty"])
             direction = r["direction"]
             notional = entry_px * qty
-            margin = notional / LEVERAGE
+            margin = notional / leverage
             margin_locked += margin
 
             mark_px = tickers.get(sym, entry_px)
@@ -113,27 +124,28 @@ def get_stats() -> dict:
                 pnl = (entry_px - mark_px) * qty
             unrealized_pnl += pnl
 
-        equity = round(VIRTUAL_CAPITAL_BASE + realized_pnl + unrealized_pnl, 2)
+        equity = round(virtual_base + realized_pnl + unrealized_pnl, 2)
         avail = max(0.0, round(equity - margin_locked, 2))
 
         return {
-            "virtual_base": VIRTUAL_CAPITAL_BASE,
+            "virtual_base": virtual_base,
             "equity": equity,
             "available_cash": avail,
             "margin_locked": round(margin_locked, 2),
-            "target_margin_pct": "3–5%",
-            "target_margin_usd": "$3.50 – $5.00",
-            "target_notional_usd": 40.0,
-            "leverage": LEVERAGE,
-            "max_concurrent": 2,
+            "target_margin_pct": f"{margin_pct:.1f}%",
+            "target_margin_usd": f"${margin_per_trade:.2f}",
+            "target_notional_usd": target_notional,
+            "leverage": leverage,
+            "max_concurrent": max_concurrent,
             "realized_pnl": realized_pnl,
             "unrealized_pnl": round(unrealized_pnl, 2),
             "today_pnl": today_pnl,
             "daily_loss": daily_loss,
-            "circuit_breaker_limit": 10.0,
+            "circuit_breaker_limit": circuit_limit,
             "total_trades": total_trades,
             "total_wins": total_wins,
             "active_positions_count": len(open_rows),
+            "settings": s,
         }
     finally:
         con.close()
@@ -141,6 +153,8 @@ def get_stats() -> dict:
 
 def get_open_positions() -> list[dict]:
     tickers = get_live_tickers()
+    s = get_settings()
+    leverage = int(s.get("leverage", 10))
     con = get_db()
     try:
         rows = con.execute("SELECT * FROM testnet_executions WHERE status = 'OPEN' ORDER BY id ASC").fetchall()
@@ -155,14 +169,14 @@ def get_open_positions() -> list[dict]:
             mark_px = tickers.get(sym, entry_px)
 
             notional = round(entry_px * qty, 2)
-            margin = round(notional / LEVERAGE, 2)
+            margin = round(notional / leverage, 2)
 
             if direction == "bullish":
                 pnl_usd = (mark_px - entry_px) * qty
-                pnl_pct = (mark_px - entry_px) / entry_px * 100 * LEVERAGE
+                pnl_pct = (mark_px - entry_px) / entry_px * 100 * leverage
             else:
                 pnl_usd = (entry_px - mark_px) * qty
-                pnl_pct = (entry_px - mark_px) / entry_px * 100 * LEVERAGE
+                pnl_pct = (entry_px - mark_px) / entry_px * 100 * leverage
 
             res.append({
                 "id": r["id"],
@@ -233,14 +247,23 @@ def get_history() -> list[dict]:
 
 
 _INDEX_HTML_CACHE: bytes | None = None
+_INDEX_HTML_MTIME: float = 0.0
 
 def get_index_html() -> bytes | None:
-    global _INDEX_HTML_CACHE
-    if _INDEX_HTML_CACHE is None:
-        index_path = TEMPLATE_DIR / "index.html"
-        if index_path.exists():
-            _INDEX_HTML_CACHE = index_path.read_bytes()
-    return _INDEX_HTML_CACHE
+    global _INDEX_HTML_CACHE, _INDEX_HTML_MTIME
+    index_path = TEMPLATE_DIR / "index.html"
+    if not index_path.exists():
+        return None
+    try:
+        mtime = index_path.stat().st_mtime
+        if _INDEX_HTML_CACHE is not None and mtime == _INDEX_HTML_MTIME:
+            return _INDEX_HTML_CACHE
+        _INDEX_HTML_CACHE = index_path.read_bytes()
+        _INDEX_HTML_MTIME = mtime
+        return _INDEX_HTML_CACHE
+    except Exception as e:
+        logger.warning(f"Error reading index.html: {e}")
+        return _INDEX_HTML_CACHE
 
 
 class TestnetDashboardHandler(BaseHTTPRequestHandler):
@@ -273,6 +296,10 @@ class TestnetDashboardHandler(BaseHTTPRequestHandler):
             self._json(get_history())
             return
 
+        if path == "/api/settings":
+            self._json(get_settings())
+            return
+
         if path == "/api/health":
             self._json({
                 "status": "ok",
@@ -284,11 +311,72 @@ class TestnetDashboardHandler(BaseHTTPRequestHandler):
 
         self.send_error(404, "Not Found")
 
-    def _json(self, data: Any):
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/api/settings":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length <= 0:
+                    self._json({"status": "error", "message": "Empty payload"}, status=400)
+                    return
+
+                raw_body = self.rfile.read(content_length).decode("utf-8")
+                payload = json.loads(raw_body)
+            except Exception as e:
+                self._json({"status": "error", "message": f"Invalid JSON payload: {e}"}, status=400)
+                return
+
+            is_valid, validated_or_err = validate_settings(payload)
+            if not is_valid or not isinstance(validated_or_err, dict):
+                self._json({"status": "error", "message": str(validated_or_err)}, status=400)
+                return
+
+            old_settings = get_settings()
+            try:
+                new_settings = save_settings(validated_or_err)
+            except Exception as e:
+                self._json({"status": "error", "message": f"Failed to save settings: {e}"}, status=500)
+                return
+
+            # Sync leverage to Binance Testnet across follower coins if leverage changed or forced
+            binance_sync = {}
+            if new_settings.get("leverage") != old_settings.get("leverage") or payload.get("force_sync"):
+                try:
+                    from fapi_executor import BinanceFuturesExecutor
+                    executor = BinanceFuturesExecutor()
+                    followers = ["SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]
+                    binance_sync = executor.apply_leverage_to_symbols(new_settings["leverage"], followers)
+                    logger.info(f"Synced {new_settings['leverage']}x leverage to Binance Testnet: {binance_sync}")
+                except Exception as e:
+                    logger.warning(f"Failed to sync leverage to Binance: {e}")
+                    binance_sync = {"error": str(e)}
+
+            self._json({
+                "status": "ok",
+                "message": "Settings updated successfully",
+                "settings": new_settings,
+                "binance_sync": binance_sync,
+            })
+            return
+
+        self.send_error(404, "Not Found")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def _json(self, data: Any, status: int = 200):
         body = json.dumps(data).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

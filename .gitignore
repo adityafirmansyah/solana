@@ -5,6 +5,7 @@ solana.db
 solana.db-shm
 solana.db-wal
 backups/
-state/circuit.json
+state/*.json
+state/*.tmp
 .env
 *.bak
