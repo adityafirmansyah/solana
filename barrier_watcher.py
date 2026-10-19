@@ -1205,6 +1205,29 @@ class MultiCoinLeadLagWatcher:
         except Exception as e:
             logger.error(f"Error during reconcile startup: {e}")
 
+        # Reconcile startup executions and flatten orphaned exchange positions
+        if FAPI_EXECUTOR:
+            try:
+                positions = FAPI_EXECUTOR._request("GET", "/fapi/v2/positionRisk")
+                if isinstance(positions, list):
+                    for p in positions:
+                        amt = float(p.get("positionAmt", 0.0))
+                        sym = p.get("symbol", "")
+                        if amt != 0 and sym in FOLLOWERS:
+                            # If no active trade in watcher tracking this symbol, flatten it
+                            if not any(t.get("symbol") == sym for t in self.active_trades.values()):
+                                close_side = "BUY" if amt < 0 else "SELL"
+                                logger.warning(f"Reconcile: Found orphaned exchange position on {sym} ({amt}). Flattening {close_side} {abs(amt)}...")
+                                FAPI_EXECUTOR._request("POST", "/fapi/v1/order", {
+                                    "symbol": sym,
+                                    "side": close_side,
+                                    "type": "MARKET",
+                                    "quantity": abs(amt),
+                                    "positionSide": "BOTH",
+                                })
+            except Exception as e:
+                logger.error(f"Error checking exchange positions in reconcile: {e}")
+
     async def run_stream(self):
         while self.running:
             try:

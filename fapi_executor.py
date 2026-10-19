@@ -408,7 +408,7 @@ class BinanceFuturesExecutor:
                                     "side": close_side,
                                     "type": "MARKET",
                                     "quantity": abs(amt),
-                                    "reduceOnly": "true",
+                                    "positionSide": "BOTH",
                                 })
             except Exception as e:
                 logger.error(f"Error flattening position for {symbol}: {e}")
