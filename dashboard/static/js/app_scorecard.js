@@ -1,5 +1,7 @@
 // Technical Indicator Scorecard Helper
 function renderModalScorecard(p) {
+    const techSec = document.getElementById('modalTechnicalSection');
+    const sentSec = document.getElementById('modalSentimentSection');
     if (techSec) techSec.classList.remove('hidden');
     if (sentSec) sentSec.classList.add('hidden');
 
@@ -137,9 +139,8 @@ function renderModalScorecard(p) {
         <div class="font-bold text-xs mt-0.5 ${f.color}">${f.val}</div>
       </div>
     `).join('');
-  }
-  document.getElementById('modalRefPrice').textContent = `$${p.ref_price.toFixed(2)}`;
-  document.getElementById('modalNoiseThr').textContent = p.noise_threshold ? `$${p.noise_threshold.toFixed(2)}` : '—';
-  document.getElementById('modalRealizedPrice').textContent = p.realized_price ? `$${p.realized_price.toFixed(2)}` : 'In Progress...';
 
+    document.getElementById('modalRefPrice').textContent = `$${p.ref_price.toFixed(2)}`;
+    document.getElementById('modalNoiseThr').textContent = p.noise_threshold ? `$${p.noise_threshold.toFixed(2)}` : '—';
+    document.getElementById('modalRealizedPrice').textContent = p.realized_price ? `$${p.realized_price.toFixed(2)}` : 'In Progress...';
 }

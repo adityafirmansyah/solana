@@ -174,6 +174,7 @@ function openDetailsModal(id) {
   }
 
   document.getElementById('detailsModal').classList.remove('hidden');
+  }
 }
 
 function closeDetailsModal() {

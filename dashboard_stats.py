@@ -94,84 +94,125 @@ def get_stats_data(days: int | None = None, signal_source: str | None = None) ->
     sig_counts = {r["signal_source"]: r["c"] for r in con.execute(count_sql).fetchall()}
 
     graded_non_noise = [r for r in rows if r["is_noise"] == 0 and r["correct"] is not None]
+    wins = [r for r in graded_non_noise if r["correct"] == 1]
+    losses = [r for r in graded_non_noise if r["correct"] == 0]
+    noise_rows = [r for r in rows if r["is_noise"] == 1]
+    no_calls = [r for r in rows if r["direction"] == "no_call"]
+
     n_graded = len(graded_non_noise)
-    wins = sum(1 for r in graded_non_noise if r["correct"] == 1)
-    losses = n_graded - wins
+    hit_rate = round((len(wins) / n_graded * 100), 2) if n_graded > 0 else None
+    
+    gross_win_pts = sum(abs(r["move"]) for r in wins)
+    gross_loss_pts = sum(abs(r["move"]) for r in losses)
+    profit_factor = round(gross_win_pts / gross_loss_pts, 2) if gross_loss_pts > 0 else (99.0 if gross_win_pts > 0 else 1.0)
+    net_points = round(sum(r["move"] * (1 if r["direction"] == "bullish" else -1) for r in graded_non_noise), 2)
 
-    hit_rate = round((wins / n_graded) * 100, 1) if n_graded > 0 else 0.0
-    avg_base_rate = round(statistics.fmean([r["base_rate"] for r in rows]) * 100, 1) if rows else 50.0
-    edge_pp = round(hit_rate - avg_base_rate, 1) if n_graded > 0 else 0.0
+    avg_base_rate = round(sum(r["base_rate"] for r in rows) / len(rows) * 100, 2) if rows else 48.0
+    edge_pp = round(hit_rate - avg_base_rate, 2) if hit_rate is not None else None
 
-    noise_count = sum(1 for r in rows if r["is_noise"] == 1)
-    noise_ratio = round((noise_count / len(rows)) * 100, 1) if rows else 0.0
+    # Multi-coin stats breakdown
+    by_symbol = {}
+    for s in ["SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]:
+        s_rows = [r for r in rows if (r.get("symbol") or "SOLUSDT") == s]
+        s_graded = [r for r in s_rows if r["is_noise"] == 0 and r["correct"] is not None]
+        s_wins = [r for r in s_graded if r["correct"] == 1]
+        s_losses = [r for r in s_graded if r["correct"] == 0]
+        s_pts = round(sum(r["move"] * (1 if r["direction"] == "bullish" else -1) for r in s_graded), 4)
+        by_symbol[s] = {
+            "total": len(s_rows),
+            "graded": len(s_graded),
+            "wins": len(s_wins),
+            "losses": len(s_losses),
+            "win_rate": round(len(s_wins) / len(s_graded) * 100, 1) if s_graded else None,
+            "net_points": s_pts,
+        }
 
-    net_points = round(sum(r["move"] for r in graded_non_noise), 2)
-    win_moves = [r["move"] for r in graded_non_noise if r["correct"] == 1]
-    loss_moves = [abs(r["move"]) for r in graded_non_noise if r["correct"] == 0]
-    profit_factor = round(sum(win_moves) / sum(loss_moves), 2) if sum(loss_moves) > 0 else (99.0 if win_moves else 0.0)
+    # Fetch active trades
+    active_trades = []
+    act_sql = """
+        SELECT p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.direction,
+               p.ref_price, p.confidence, p.horizon, p.signal_source, p.notes,
+               p.inputs_json, p.features_json
+        FROM predictions p
+        LEFT JOIN outcomes o ON o.prediction_id = p.id
+        WHERE o.prediction_id IS NULL AND p.direction IN ('bullish', 'bearish')
+        ORDER BY p.id DESC
+    """
+    for r in con.execute(act_sql).fetchall():
+        d = dict(r)
+        d["symbol"] = d.get("symbol") or "SOLUSDT"
+        d["leader_symbol"] = d.get("leader_symbol") or "BTCUSDT"
+        try:
+            inputs = json.loads(d.get("inputs_json") or "{}")
+        except Exception:
+            inputs = {}
+        try:
+            features = json.loads(d.get("features_json") or "{}")
+        except Exception:
+            features = {}
+        d["tp_price"] = inputs.get("target_tp_price") or inputs.get("tp_price")
+        d["sl_price"] = inputs.get("stop_loss_price") or inputs.get("sl_price")
+        d["disparity_pct"] = features.get("disparity_pct")
+        active_trades.append(d)
 
-    equity = 0.0
+    cum_pts = 0.0
     equity_series = []
     for r in graded_non_noise:
-        equity += r["move"]
+        pts = r["move"] if r["direction"] == "bullish" else -r["move"]
+        cum_pts += pts
         equity_series.append({
             "id": r["id"],
-            "time": r["graded_wib"],
-            "equity": round(equity, 2),
-            "move": round(r["move"], 2),
+            "symbol": r.get("symbol") or "SOLUSDT",
+            "time": r["graded_wib"][:16],
+            "points": round(cum_pts, 2),
+            "move": round(pts, 2),
             "correct": r["correct"]
         })
 
+    recent_where = f"WHERE {' AND '.join(where_p)}" if where_p else ""
     recent_sql = f"""
-        SELECT p.id, p.symbol, p.leader_symbol, p.created_wib, p.horizon, p.direction, p.confidence,
-               p.signal_source, p.ref_price, p.noise_threshold, p.features_json, p.params_json, p.inputs_json, p.notes,
-               o.graded_wib, o.realized_price, o.move, o.move_pct, o.realized_dir, o.is_noise, o.correct, o.base_rate,
-               od.target_price, od.sl_price, od.target_reached, od.sl_hit
+        SELECT 
+            p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.target_bar_utc, p.horizon, p.direction, p.confidence, p.ref_price, 
+            p.noise_threshold, p.signal_source, p.notes, p.features_json, p.inputs_json,
+            p.params_json,
+            o.graded_wib, o.realized_price, o.move, o.is_noise, o.correct, o.base_rate,
+            od.target_price, od.sl_price, od.bar_high, od.bar_low, od.target_reached, od.sl_hit
         FROM predictions p
         LEFT JOIN outcomes o ON o.prediction_id = p.id
         LEFT JOIN outcome_details od ON od.prediction_id = p.id
-        {pred_where}
+        {recent_where}
         ORDER BY p.id DESC
-        LIMIT 100
+        LIMIT 50
     """
-    recent_rows = []
-    for r in con.execute(recent_sql, args_p).fetchall():
-        d = dict(r)
-        d["contributions"] = _contributions_for_row(d)
-        recent_rows.append(d)
-
-    active_trades = []
-    lead_lag_active_sql = """
-        SELECT p.id, p.symbol, p.leader_symbol, p.created_wib, p.created_utc, p.direction,
-               p.ref_price, p.noise_threshold, p.inputs_json, p.features_json, p.notes
-        FROM predictions p
-        LEFT JOIN outcomes o ON o.prediction_id = p.id
-        WHERE o.prediction_id IS NULL AND p.signal_source = 'lead_lag' AND p.direction IN ('bullish', 'bearish')
-        ORDER BY p.id ASC
-    """
-    for r in con.execute(lead_lag_active_sql).fetchall():
-        d = dict(r)
-        d["contributions"] = _contributions_for_row(d)
-        active_trades.append(d)
-
-    by_symbol: dict[str, dict] = {}
-    multi_symbols = ["SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]
-    for sym in multi_symbols:
-        sym_graded = [r for r in graded_non_noise if (r.get("symbol") or "SOLUSDT") == sym]
-        sym_n = len(sym_graded)
-        sym_wins = sum(1 for r in sym_graded if r["correct"] == 1)
-        sym_wr = round((sym_wins / sym_n) * 100, 1) if sym_n > 0 else 0.0
-        sym_pts = round(sum(r["move"] for r in sym_graded), 2)
-        by_symbol[sym] = {"total": sym_n, "wins": sym_wins, "win_rate": sym_wr, "net_points": sym_pts}
+    recent_rows = [dict(r) for r in con.execute(recent_sql, args_p).fetchall()]
+    for r in recent_rows:
+        r["symbol"] = r.get("symbol") or "SOLUSDT"
+        r["leader_symbol"] = r.get("leader_symbol") or "BTCUSDT"
+        r["contributions"] = _contributions_for_row(r)
+        score = sum(r["contributions"].values()) if r.get("contributions") else (r.get("confidence") or 0.0)
+        if r.get("direction") == "bearish" and score > 0:
+            score = -score
+        r["score"] = round(score, 4)
+        r["bullish_confidence"] = round(0.5 + 0.5 * score, 4)
+        r["bearish_confidence"] = round(0.5 - 0.5 * score, 4)
 
     con.close()
 
     return {
-        "kpi": {
-            "hit_rate": hit_rate, "n_graded": n_graded, "wins": wins, "losses": losses,
-            "avg_base_rate": avg_base_rate, "edge_pp": edge_pp, "net_points": net_points,
-            "profit_factor": profit_factor, "noise_ratio": noise_ratio, "noise_count": noise_count,
-            "total_calls": total_preds, "pending_count": pending_preds,
+        "kpis": {
+            "total_predictions": total_preds,
+            "pending_predictions": pending_preds,
+            "total_outcomes": len(rows),
+            "graded_non_noise": n_graded,
+            "noise_filtered": len(noise_rows),
+            "no_calls": len(no_calls),
+            "hit_rate": hit_rate,
+            "base_rate": avg_base_rate,
+            "edge_pp": edge_pp,
+            "profit_factor": profit_factor,
+            "net_points": net_points,
+            "gross_win_pts": round(gross_win_pts, 2),
+            "gross_loss_pts": round(gross_loss_pts, 2),
             "verdict": "SIGNIFICANT" if (edge_pp and edge_pp > 3.0 and n_graded > 30) else ("COLLECTING_DATA" if n_graded < 30 else "NOT_SIGNIFICANT")
         },
         "by_symbol": by_symbol,
