@@ -273,31 +273,6 @@
       </div>
     </div>
 
-    <!-- Safety & Rules Reference Card -->
-    <div class="glass-panel rounded-xl p-5 border border-border text-xs text-slate-400 space-y-2">
-      <div class="font-bold text-slate-200 text-sm flex items-center gap-2">
-        <span class="text-amber-400">🛡️</span> Micro-Lead-Lag Execution & Bankroll Policy Enforced
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 font-mono text-[11px]">
-        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-          <span class="text-amber-400 font-bold block mb-1">1. 10x Isolated Margin</span>
-          Target ~$40 USD notional. Margin locked is ~$3.50–$5.00 (3.5%–5.0% of $100 bankroll) per trade.
-        </div>
-        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-          <span class="text-emerald-400 font-bold block mb-1">2. Asymmetric R:R (&ge; 1.8:1)</span>
-          TP target +0.45% s/d +0.75%. Tight SL hard-capped at 0.25% s/d 0.32% to cut false breakouts early. Spread guard blocks book &gt; 0.08%.
-        </div>
-        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-          <span class="text-cyan-400 font-bold block mb-1">3. 6m Micro Time-Stop</span>
-          Position auto-cut at mark price after 360s (6m) if momentum stalls, preventing dead-capital drift.
-        </div>
-        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-          <span class="text-rose-400 font-bold block mb-1">4. Drawdown & Concurrency</span>
-          Max 2 concurrent positions (&le; $10 total margin). Circuit breaker halts trading at -$10.00 daily loss.
-        </div>
-      </div>
-    </div>
-
   </main>
 
   <!-- Footer -->
