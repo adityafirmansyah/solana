@@ -60,7 +60,7 @@ logger = logging.getLogger("solana_lead_lag")
 LEADERS = ["BTCUSDT", "ETHUSDT"]
 FOLLOWERS = ["SOLUSDT", "AVAXUSDT", "SUIUSDT", "NEARUSDT", "DOGEUSDT", "LINKUSDT"]
 ALL_SYMBOLS = LEADERS + FOLLOWERS
-WS_URI = "wss://data-stream.binance.vision:9443/ws/" + "/".join(f"{s.lower()}@kline_1s" for s in ALL_SYMBOLS)
+WS_URI = "wss://data-stream.binance.vision:9443/stream?streams=" + "/".join(f"{s.lower()}@kline_1s" for s in ALL_SYMBOLS)
 DB_CHECK_INTERVAL_SECS = 2.0
 
 
@@ -164,8 +164,8 @@ class MultiCoinLeadLagWatcher:
             if btc_candles:
                 for c in btc_candles:
                     t_ms = int(c["open_time"])
-                    vol_sample = c["volume"] / 12.0
-                    for offset_s in range(0, 60, 5):
+                    vol_sample = c["volume"] / 60.0
+                    for offset_s in range(0, 60):
                         self.rolling_1s["BTCUSDT"].append({
                             "open": c["open"], "high": c["high"], "low": c["low"],
                             "close": c["close"], "vol": vol_sample,
@@ -178,8 +178,8 @@ class MultiCoinLeadLagWatcher:
             if eth_candles:
                 for c in eth_candles:
                     t_ms = int(c["open_time"])
-                    vol_sample = c["volume"] / 12.0
-                    for offset_s in range(0, 60, 5):
+                    vol_sample = c["volume"] / 60.0
+                    for offset_s in range(0, 60):
                         self.rolling_1s["ETHUSDT"].append({
                             "open": c["open"], "high": c["high"], "low": c["low"],
                             "close": c["close"], "vol": vol_sample,
@@ -266,10 +266,7 @@ class MultiCoinLeadLagWatcher:
 
                         self.check_db_update()
                         msg = json.loads(raw_msg)
-                        data = msg.get("data")
-                        if not data:
-                            continue
-
+                        data = msg.get("data", msg)
                         k = data.get("k")
                         symbol = data.get("s")
                         if not k or not symbol or symbol not in self.rolling_1s:
