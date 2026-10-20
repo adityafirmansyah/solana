@@ -78,6 +78,7 @@ class MultiCoinLeadLagWatcher:
         self.accumulation_vol_ratio: float = 1.0
         self.state_3_armed_ts: float = 0.0
         self.armed_direction: str = "bullish"
+        self.state_3_reasons: list[str] = []
 
         self.last_state_1_notify_ts: float = 0.0
         self.last_state_2_notify_ts: float = 0.0
@@ -124,7 +125,8 @@ class MultiCoinLeadLagWatcher:
         return find_lagging_follower_candidate(
             direction, abs_btc_move, btc_move_pct, vol_ratio,
             self.active_trades, self.last_global_trigger_ts, self.last_trigger_ts,
-            self.rolling_1s, self.baselines, FOLLOWERS, FAPI_EXECUTOR
+            self.rolling_1s, self.baselines, FOLLOWERS, FAPI_EXECUTOR,
+            self.state_3_reasons,
         )
 
     def evaluate_fsm(self):

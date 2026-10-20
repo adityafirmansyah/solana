@@ -262,6 +262,7 @@ def sync_record_lead_lag_prediction(
     follower_move_pct: float,
     disparity: float,
     atr_val: float,
+    trigger_source: str = "ARMED_VELOCITY (State 3)",
 ) -> dict | None:
     """Record new Lead-Lag prediction in the ledger and trigger testnet execution."""
     now_utc_dt = datetime.now(UTC)
@@ -374,6 +375,7 @@ def sync_record_lead_lag_prediction(
                 f"· Margin `${exec_info['margin_used']}` ({exec_info['margin_pct_capital']}% of $100 bankroll · 5x Isolated)"
             )
 
+        route_line = f"\n• **Trigger Route**: 🎯 **Converted from {trigger_source}**" if trigger_source else ""
         metrics = (
             f"⚡ **FSM STATE 4: DISPARITY EXECUTION**\n"
             f"• **Signal**: `{leader}` ➔ **{symbol}**\n"
@@ -384,6 +386,7 @@ def sync_record_lead_lag_prediction(
             f"• **Entry (Ref)**: `{format_price(ref_price, symbol)}`\n"
             f"• **Target (TP)**: `{format_price(tp_price, symbol)}` (+1.5× ATR) · **Stop Loss (SL)**: `{format_price(sl_price, symbol)}` (-1.0× ATR)\n"
             f"• **Prediction ID**: `#{pid}` · `{wib_time} WIB`"
+            f"{route_line}"
             f"{testnet_line}"
         )
         post_persona_discord("DISPARITY_EXECUTION (State 4)", details, metrics)

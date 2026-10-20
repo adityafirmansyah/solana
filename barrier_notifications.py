@@ -75,6 +75,12 @@ def get_fallback_commentary(event_name: str) -> str:
             "taker pressure berat sebelah nyapu resting limit walls. Aliran order lagi dikumpulkan."
         )
     elif "ARMED" in ev or "STATE 3" in ev:
+        if "STAND DOWN" in ev or "EXPIRED" in ev:
+            return (
+                "Window 45s transmisi ARMED VELOCITY udah habis tanpa ada follower yang ketinggalan secara valid. "
+                "Altcoin high-beta udah bergerak sinkron duluan atau spread book lagi melebar. "
+                "Daripada maksain entry tanpa edge, FSM gue tarik mundur balik ke status IDLE."
+            )
         return (
             "BTC mulai dapet dorongan akselerasi dan ETH udah konfirmasi validasi arah yang sama. "
             "FSM gue arming sekarang, window transmisi cuma 45 detik sebelum momentum decay."

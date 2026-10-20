@@ -105,6 +105,7 @@ class LeadLagFSM:
         self.w.state_entered_ts = time.time()
         self.w.state_3_armed_ts = time.time()
         self.w.armed_direction = direction
+        self.w.state_3_reasons = []
         logger.info(f"FSM State 3 (ARMED_VELOCITY): Dir={direction.upper()}, BTC move={btc_move:+.3f}%, ETH confirm={eth_move:+.3f}%, TTL=45s")
 
         now = time.time()
@@ -127,6 +128,7 @@ class LeadLagFSM:
             asyncio.create_task(asyncio.to_thread(post_persona_discord, "ARMED_VELOCITY (State 3)", details, metrics))
 
     def execute_state_4(self, opp: dict):
+        trigger_source = "ARMED_VELOCITY (State 3)" if self.w.state == EngineState.ARMED_VELOCITY else "FAST_PATH_BURST"
         self.w.state = EngineState.DISPARITY_EXECUTION
         self.w.state_entered_ts = time.time()
         follower = opp["follower"]
@@ -135,7 +137,7 @@ class LeadLagFSM:
         self.w.last_global_trigger_ts = now_ts
         logger.info(
             f"⚡ FSM State 4 (DISPARITY_EXECUTION): {opp['leader']} {opp['direction']} {opp['leader_move_pct']:+.2f}% "
-            f"➔ {follower} lag (disparity: {opp['disparity']:.2f}%)"
+            f"➔ {follower} lag (disparity: {opp['disparity']:.2f}%) via {trigger_source}"
         )
         trade = sync_record_lead_lag_prediction(
             opp["follower"],
@@ -147,21 +149,45 @@ class LeadLagFSM:
             opp["follower_move_pct"],
             opp["disparity"],
             opp["atr"],
+            trigger_source=trigger_source,
         )
         if trade:
             self.w.active_trades[trade["id"]] = trade
 
         self.w.state = EngineState.IDLE
         self.w.state_entered_ts = time.time()
+        self.w.state_3_reasons = []
 
     def evaluate(self):
         now_ts = time.time()
 
         if self.w.state == EngineState.ARMED_VELOCITY:
             if (now_ts - self.w.state_3_armed_ts) > STATE_3_TTL_SECS:
-                logger.info(f"ARMED_VELOCITY TTL expired ({STATE_3_TTL_SECS}s). Reverting to IDLE.")
+                direction = getattr(self.w, "armed_direction", "bullish")
+                reasons = getattr(self.w, "state_3_reasons", [])
+                reason_summary = " · ".join(reasons[:2]) if reasons else "Altcoin ikut gerak sinkron / tidak ada disparity ≥ 0.03%"
+                logger.info(f"ARMED_VELOCITY TTL expired ({STATE_3_TTL_SECS}s). Reverting to IDLE. Reason: {reason_summary}")
+
+                wib_str = datetime.now(UTC).astimezone(WIB).strftime("%H:%M:%S")
+                dir_emoji = "🐂" if direction == "bullish" else "🐻"
+                details = (
+                    f"Window transmisi ARMED VELOCITY ({direction.upper()}) selama {STATE_3_TTL_SECS}s telah habis tanpa eksekusi State 4. "
+                    f"Penyebab: {reason_summary}. FSM stand down dan kembali ke status IDLE."
+                )
+                metrics = (
+                    f"🛑 **FSM STATE 3 STAND DOWN: WINDOW EXPIRED**\n"
+                    f"• **Status**: Stand Down ➔ Reverting to `IDLE`\n"
+                    f"• **Transmission Window**: `{STATE_3_TTL_SECS}s TTL Expired`\n"
+                    f"• **Armed Bias**: **{direction.upper()}** {dir_emoji}\n"
+                    f"• **State 4 Outcome**: ❌ **No Execution**\n"
+                    f"• **Diagnosis**: `{reason_summary}`\n"
+                    f"• **Timestamp**: `{wib_str} WIB`"
+                )
+                asyncio.create_task(asyncio.to_thread(post_persona_discord, "ARMED_VELOCITY_EXPIRED (State 3 Stand Down)", details, metrics))
+
                 self.w.state = EngineState.IDLE
                 self.w.state_entered_ts = now_ts
+                self.w.state_3_reasons = []
 
         if self.w.state == EngineState.ACCUMULATION_BUILDUP:
             if (now_ts - self.w.state_entered_ts) > 300.0:

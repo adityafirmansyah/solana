@@ -78,13 +78,20 @@ def find_lagging_follower_candidate(
     baselines: dict[str, dict],
     followers: list[str],
     fapi_executor: Any = None,
+    blocker_reasons: list[str] | None = None,
 ) -> dict | None:
     now_ts = time.time()
+
+    def record_blocker(msg: str):
+        if blocker_reasons is not None and msg not in blocker_reasons:
+            if len(blocker_reasons) < 5:
+                blocker_reasons.append(msg)
 
     # 1. Global Cluster Cooldown Guard
     if (now_ts - last_global_trigger_ts) < GLOBAL_CLUSTER_COOLDOWN_SECS:
         elapsed = int(now_ts - last_global_trigger_ts)
         logger.info(f"Cluster cooldown active ({elapsed}s < {int(GLOBAL_CLUSTER_COOLDOWN_SECS)}s). Skipping candidate search.")
+        record_blocker(f"Cluster cooldown active ({elapsed}s/180s)")
         return None
 
     # 2. Directional Cluster Concurrency Guard
@@ -92,6 +99,7 @@ def find_lagging_follower_candidate(
     if len(active_same_dir) >= MAX_CONCURRENT_SAME_DIR_TRADES:
         symbols = [t.get("symbol") for t in active_same_dir]
         logger.info(f"Max concurrent {direction.upper()} trades active ({len(active_same_dir)}/{MAX_CONCURRENT_SAME_DIR_TRADES}): {symbols}. Skipping.")
+        record_blocker(f"Max concurrent {direction.upper()} ({symbols})")
         return None
 
     # 3. Climax / Exhaustion Guard on Leader (BTC)
@@ -106,12 +114,14 @@ def find_lagging_follower_candidate(
                     f"⚠️ Exhaustion Guard BLOCKED BULLISH entry: BTC already pumped {btc_ex_move_pct:+.2f}% in {window_len}s "
                     f"(Threshold >= +{EXHAUSTION_BTC_60S_MOVE_PCT:.2f}%). Climax risk."
                 )
+                record_blocker(f"BTC pump exhaustion ({btc_ex_move_pct:+.2f}% in {window_len}s)")
                 return None
             elif direction == "bearish" and btc_ex_move_pct <= -EXHAUSTION_BTC_60S_MOVE_PCT:
                 logger.warning(
                     f"⚠️ Exhaustion Guard BLOCKED BEARISH entry: BTC already dumped {btc_ex_move_pct:+.2f}% in {window_len}s "
                     f"(Threshold <= -{EXHAUSTION_BTC_60S_MOVE_PCT:.2f}%). Climax/absorption risk."
                 )
+                record_blocker(f"BTC dump exhaustion ({btc_ex_move_pct:+.2f}% in {window_len}s)")
                 return None
 
     candidates = []
@@ -139,6 +149,7 @@ def find_lagging_follower_candidate(
                     logger.warning(
                         f"⚠️ Spread Guard BLOCKED {follower} entry: spread={spread_pct:.3f}% > {MAX_SPREAD_PCT}%. Skipping illiquid book."
                     )
+                    record_blocker(f"Spread {follower} lebar ({spread_pct:.3f}% > {MAX_SPREAD_PCT}%)")
                     continue
 
         f_now = f_hist[-1]["close"]
@@ -153,6 +164,7 @@ def find_lagging_follower_candidate(
                 f_60_dir = f_60_move if direction == "bullish" else -f_60_move
                 if f_60_dir >= 0.15:
                     logger.info(f"Follower {follower} already expanded {f_60_dir:+.2f}% in 60s. Skipping.")
+                    record_blocker(f"{follower} sudah expand {f_60_dir:+.2f}%")
                     continue
 
         # Follower Micro-Lag Guard (12s)
@@ -162,6 +174,7 @@ def find_lagging_follower_candidate(
                 f_12_move = (f_now - f_12_start) / f_12_start * 100.0
                 f_12_dir = f_12_move if direction == "bullish" else -f_12_move
                 if f_12_dir >= 0.035:
+                    record_blocker(f"{follower} micro-move {f_12_dir:+.2f}%")
                     continue
 
         f_30 = f_hist[-30:]
@@ -173,10 +186,12 @@ def find_lagging_follower_candidate(
         realized_dir_move = follower_move_pct if direction == "bullish" else -follower_move_pct
 
         if realized_dir_move >= FOLLOWER_LAG_MAX_PCT:
+            record_blocker(f"{follower} lag habis ({realized_dir_move:+.2f}%)")
             continue
 
         disparity = abs_btc_move - max(0.0, realized_dir_move)
         if disparity < 0.03:
+            record_blocker(f"Disparity {follower} tipis ({disparity:.2f}% < 0.03%)")
             continue
 
         atr = baselines.get(follower, {}).get("atr") or (f_now * 0.005)
