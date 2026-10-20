@@ -1,0 +1,184 @@
+    <!-- LIVE CHARTS: Self-hosted Candlesticks + TradingView Reference -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+      <div class="p-4 sm:px-6 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/40">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 id="mainChartTitle" class="text-sm font-semibold text-white">SOLUSDT Live Candlesticks & Overlays</h2>
+            <span class="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">PREDICTION MARKERS</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">Switch symbols to view Leader impulses and Follower trade barriers (TP/SL). Green = WIN, Red = LOSS, Amber = PENDING.</p>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+          <!-- Multi-Coin Dropdown Selector -->
+          <div class="relative inline-flex items-center">
+            <label for="coinSelect" class="text-[11px] text-slate-400 mr-1.5 flex items-center gap-1">
+              <span>Pair:</span>
+            </label>
+            <select id="coinSelect" onchange="setChartSymbol(this.value)" class="bg-slate-800/90 text-amber-300 font-semibold text-xs rounded-lg border border-slate-700/80 px-2.5 py-1 focus:outline-none focus:border-amber-400 cursor-pointer shadow-sm">
+              <optgroup label="👑 Leaders">
+                <option value="BTCUSDT">👑 BTC/USDT</option>
+                <option value="ETHUSDT">👑 ETH/USDT</option>
+              </optgroup>
+              <optgroup label="⚡ Followers">
+                <option value="SOLUSDT" selected>SOL/USDT</option>
+                <option value="AVAXUSDT">AVAX/USDT</option>
+                <option value="SUIUSDT">SUI/USDT</option>
+                <option value="NEARUSDT">NEAR/USDT</option>
+                <option value="DOGEUSDT">DOGE/USDT</option>
+                <option value="LINKUSDT">LINK/USDT</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60">
+            <button onclick="setChartTab('candles')" id="btn-tab-candles" class="px-3 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 shadow">Candlesticks</button>
+            <button onclick="setChartTab('tv')" id="btn-tab-tv" class="px-3 py-1 rounded-md text-slate-400 hover:text-white">TradingView Embed</button>
+          </div>
+          <div id="intervalPills" class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60">
+            <button onclick="setCandleInterval('15m')" id="btn-tf-15m" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">15m</button>
+            <button onclick="setCandleInterval('1h')" id="btn-tf-1h" class="px-2 py-1 rounded-md text-amber-400 font-semibold bg-slate-900 text-[11px] shadow">1h</button>
+            <button onclick="setCandleInterval('4h')" id="btn-tf-4h" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">4h</button>
+            <button onclick="setCandleInterval('1d')" id="btn-tf-1d" class="px-2 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">1d</button>
+          </div>
+          <div id="indicatorToggles" class="relative">
+            <button onclick="toggleIndicatorMenu()" id="btn-ind-menu" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-300 bg-slate-800/80 border border-slate-700/60 hover:border-slate-600">
+              <span class="flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+              </span>
+              Indicators
+              <span id="indCountBadge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300">2</span>
+              <span class="text-slate-500">▾</span>
+            </button>
+            <div id="indMenuPanel" class="hidden absolute top-full right-0 mt-1.5 z-20 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 space-y-0.5">
+              <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-2.5 pt-1 pb-0.5">Technical Overlays</div>
+              <button onclick="toggleIndicator('ema12')" id="btn-ind-ema12" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>EMA12 <span class="ml-auto text-[10px] text-slate-500">●</span>
+              </button>
+              <button onclick="toggleIndicator('ema26')" id="btn-ind-ema26" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left font-semibold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-sky-400 flex-shrink-0"></span>EMA26 <span class="ml-auto text-[10px] text-slate-500">●</span>
+              </button>
+              <button onclick="toggleIndicator('sma20')" id="btn-ind-sma20" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-violet-400/60 flex-shrink-0"></span>SMA20 <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleIndicator('atr_band')" id="btn-ind-atr_band" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-400/60 flex-shrink-0"></span>ATR Band <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleIndicator('rsi14')" id="btn-ind-rsi14" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-pink-400/60 flex-shrink-0"></span>RSI <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <div class="border-t border-slate-800 my-1"></div>
+              <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-2.5 pt-1 pb-0.5">Prediction Markers</div>
+              <button onclick="toggleMarkerKind('pending')" id="btn-mk-pending" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>Pending <span class="ml-auto text-[10px] text-slate-500">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('win')" id="btn-mk-win" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400/60 flex-shrink-0"></span>Win <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('loss')" id="btn-mk-loss" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-400/60 flex-shrink-0"></span>Loss <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('noise')" id="btn-mk-noise" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-400/60 flex-shrink-0"></span>Noise <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+              <button onclick="toggleMarkerKind('no_call_resolved')" id="btn-mk-nocall" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-400 hover:bg-slate-800 hover:text-white">
+                <span class="w-2.5 h-2.5 rounded-full bg-zinc-400/60 flex-shrink-0"></span>No-Call <span class="ml-auto text-[10px] text-transparent">●</span>
+              </button>
+            </div>
+          </div>
+          <div id="drawingTools" class="flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-slate-700/60 gap-0.5">
+            <button onclick="startDrawing('straightLine')" id="btn-draw-trend" title="Trendline" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">／ Trend</button>
+            <button onclick="startDrawing('horizontalStraightLine')" id="btn-draw-hline" title="Horizontal line" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">— H-Line</button>
+            <button onclick="startDrawing('fibonacciLine')" id="btn-draw-fib" title="Fibonacci retracement" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">Fib</button>
+            <button onclick="startDrawing('parallelStraightLine')" id="btn-draw-channel" title="Parallel channel" class="px-2 py-1 rounded-md text-[11px] text-slate-400 hover:text-white">Channel</button>
+            <button onclick="clearDrawings()" id="btn-draw-clear" title="Clear all drawings" class="px-2 py-1 rounded-md text-[11px] text-rose-400 hover:text-rose-300">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 1: Self-hosted KLineChart (Canvas) -->
+      <div id="tabCandles" class="p-4 relative">
+        <div id="candleChartContainer" class="h-[36rem] w-full"></div>
+      </div>
+
+      <!-- Tab 2: Embedded TradingView Widget (OANDA:SOLUSDT) -->
+      <div id="tabTradingView" class="hidden h-[36rem] w-full p-2 bg-black">
+        <iframe id="tvIframe" class="w-full h-full border-0 rounded-lg"
+          src="about:blank"></iframe>
+      </div>
+    </div>
+
+    <!-- Multi-Coin Lead-Lag Universe & Active Trades -->
+    <div class="space-y-4">
+      <!-- Universe Badges & Prices -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800/80 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-white uppercase tracking-wider font-mono">📡 Research Universe</span>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono border border-amber-500/20">8 COMBINED STREAMS</span>
+          </div>
+          <div class="text-[11px] text-slate-400 font-mono">Binance 1s Combined Stream</div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 font-mono text-xs">
+          <!-- Leaders -->
+          <div class="bg-slate-950/60 border border-amber-500/30 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-bold text-amber-400">👑 BTCUSDT</div>
+            <div id="price_BTCUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div class="text-[9px] text-slate-400 mt-0.5">Leader</div>
+          </div>
+          <div class="bg-slate-950/60 border border-amber-500/30 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-bold text-amber-400">👑 ETHUSDT</div>
+            <div id="price_ETHUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div class="text-[9px] text-slate-400 mt-0.5">Leader</div>
+          </div>
+          <!-- Followers -->
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 SOLUSDT</div>
+            <div id="price_SOLUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_SOLUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 AVAXUSDT</div>
+            <div id="price_AVAXUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_AVAXUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 SUIUSDT</div>
+            <div id="price_SUIUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_SUIUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 NEARUSDT</div>
+            <div id="price_NEARUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_NEARUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 DOGEUSDT</div>
+            <div id="price_DOGEUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_DOGEUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div class="text-[10px] font-semibold text-emerald-400">🎯 LINKUSDT</div>
+            <div id="price_LINKUSDT" class="text-white font-bold text-xs mt-1 tabular">--</div>
+            <div id="stat_LINKUSDT" class="text-[9px] text-slate-400 mt-0.5">Follower</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Lead-Lag Trades Panel -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold text-white">Active Lead-Lag Trades (Barrier Touch Watcher)</h2>
+            <span id="activeTradesCountBadge" class="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">0 ACTIVE</span>
+          </div>
+          <span class="text-xs font-mono text-slate-400">Max 1/symbol · 15m cooldown</span>
+        </div>
+        <div id="activeTradesList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div class="col-span-full py-4 text-center text-xs text-slate-500 font-mono bg-slate-950/40 rounded-lg border border-slate-800/60">
+            No active lead-lag trades holding. Monitoring 8 coin streams for impulse-disparity triggers.
+          </div>
+        </div>
+      </div>
+    </div>
+

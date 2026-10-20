@@ -1,0 +1,234 @@
+    <!-- Health / KPI Strip -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <!-- Hit Rate -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Hit Rate (True Edge)</div>
+        <div class="my-2">
+          <span id="kpiHitRate" class="text-2xl font-bold font-mono text-white tabular">--%</span>
+          <span id="kpiEdgeBadge" class="text-[11px] ml-1.5 px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-400">vs 48%</span>
+        </div>
+        <div class="text-[11px] text-slate-500" id="kpiGradedCount">0 graded (non-noise)</div>
+      </div>
+
+      <!-- Net Points -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Net Realized Move</div>
+        <div class="my-2">
+          <span id="kpiNetPoints" class="text-2xl font-bold font-mono text-white tabular">0.00</span>
+          <span class="text-xs text-slate-400">pts</span>
+        </div>
+        <div class="text-[11px] text-slate-500" id="kpiWinLossRatio">W: 0 | L: 0</div>
+      </div>
+
+      <!-- Profit Factor -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Profit Factor</div>
+        <div class="my-2">
+          <span id="kpiProfitFactor" class="text-2xl font-bold font-mono text-amber-400 tabular">1.00</span>
+        </div>
+        <div class="text-[11px] text-slate-500">Gross Win / Gross Loss</div>
+      </div>
+
+      <!-- Noise Filter Ratio -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Noise Filtered</div>
+        <div class="my-2">
+          <span id="kpiNoiseCount" class="text-2xl font-bold font-mono text-slate-300 tabular">0</span>
+          <span class="text-xs text-slate-500">&lt; 0.5×ATR</span>
+        </div>
+        <div class="text-[11px] text-slate-500" id="kpiNoisePercent">0% filtered out</div>
+      </div>
+
+      <!-- Total Calls / Active -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Total Predictions</div>
+        <div class="my-2 flex items-baseline gap-2">
+          <span id="kpiTotalPreds" class="text-2xl font-bold font-mono text-white tabular">0</span>
+          <span id="kpiPendingBadge" class="text-[11px] text-amber-400 font-mono">0 pending</span>
+        </div>
+        <div class="text-[11px] text-slate-500">100% Append-Only</div>
+      </div>
+
+      <!-- Statistical Verdict -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+        <div class="text-slate-400 text-xs font-medium">Sample Status</div>
+        <div class="my-2">
+          <span id="kpiVerdict" class="text-sm font-bold font-mono px-2 py-1 rounded bg-slate-800 text-slate-300">COLLECTING</span>
+        </div>
+        <div class="text-[11px] text-slate-500">Goal: n &gt; 57 (Job 4)</div>
+      </div>
+    </div>
+
+    <!-- Improvement Readiness: how far the ledger is from the next
+         improvement session's promotion gate (job #4) -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold text-white">Next Improvement Session — Readiness</h2>
+            <div class="group/tip relative inline-flex items-center">
+              <span class="w-4 h-4 rounded-full bg-slate-800 text-slate-400 group-hover/tip:bg-slate-700 group-hover/tip:text-amber-300 flex items-center justify-center text-[10px] font-mono cursor-help transition-colors border border-slate-700/60 font-bold">?</span>
+              <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/tip:block w-72 p-2.5 bg-slate-900 border border-slate-700 text-slate-200 text-[11px] rounded-lg shadow-xl z-30 font-sans leading-normal pointer-events-none">
+                Every noise-filtered, graded prediction adds one row to a chronological 70/30 split. The improvement job searches weights on the 70% train slice, but promotion is decided on the 30% held-out reserve — a slice the search never sees. Numbers here come from the exact same loader and split the job itself runs (improve.load_graded / improve.split), so this panel cannot disagree with the gate.
+                <div class="w-2 h-2 bg-slate-900 border-r border-b border-slate-700 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+              </div>
+            </div>
+          </div>
+          <p id="impSubtitle" class="text-xs text-slate-400 mt-0.5">Next run: — · Incumbent: —</p>
+        </div>
+        <span id="impReadyBadge" class="text-xs font-bold font-mono px-2.5 py-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">COLLECTING DATA</span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+        <!-- The Hash: two progress bars -->
+        <div class="lg:col-span-2 space-y-4">
+          <div>
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-slate-300 font-medium">Graded, Non-Noise Rows <span class="text-slate-500 font-mono">(The Hash)</span></span>
+              <span id="impNText" class="font-mono text-white tabular">— / —</span>
+            </div>
+            <div class="h-3 rounded-full bg-slate-950/80 border border-slate-800/80 overflow-hidden">
+              <div id="impNBar" class="h-full rounded-full bg-amber-500/80" style="width:0%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-slate-300 font-medium">Held-Out Reserve <span class="text-slate-500 font-mono">(30% — promotion slice)</span></span>
+              <span id="impHeldText" class="font-mono text-white tabular">— / —</span>
+            </div>
+            <div class="h-3 rounded-full bg-slate-950/80 border border-slate-800/80 overflow-hidden">
+              <div id="impHeldBar" class="h-full rounded-full bg-amber-500/80" style="width:0%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-slate-300 font-medium">Train Slice <span class="text-slate-500 font-mono">(70% — search only)</span></span>
+              <span id="impTrainText" class="font-mono text-white tabular">— / —</span>
+            </div>
+            <div class="h-3 rounded-full bg-slate-950/80 border border-slate-800/80 overflow-hidden">
+              <div id="impTrainBar" class="h-full rounded-full bg-amber-500/80" style="width:0%"></div>
+            </div>
+          </div>
+          <div id="impBindingNote" class="text-[11px] text-slate-400 font-sans">—</div>
+        </div>
+
+        <!-- Right: the numbers that matter -->
+        <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-4 space-y-3 text-xs font-mono">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Rows still needed</span>
+            <span id="impNeeded" class="text-amber-400 font-bold">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Accrual rate</span>
+            <span id="impRate" class="text-slate-200">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Measured since</span>
+            <span id="impSince" class="text-slate-200">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">First session that can clear</span>
+            <span id="impFirst" class="text-slate-200">—</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500">Chain integrity</span>
+            <span id="impChain" class="text-slate-200">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-5">
+        <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-4 text-[11px] text-slate-300 font-sans leading-relaxed">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-semibold mb-2">Why the count is what it is</div>
+          <div id="impWhyText">—</div>
+        </div>
+        <div class="lg:col-span-2 bg-slate-950/40 border border-slate-800/80 rounded-lg p-4">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-semibold mb-2">Recent improvement attempts</div>
+          <table class="w-full text-left text-[11px] font-mono">
+            <thead class="text-slate-500 border-b border-slate-800">
+              <tr><th class="py-1.5 pr-3">Slot (WIB)</th><th class="py-1.5 pr-3">Outcome</th><th class="py-1.5 pr-3 text-right">Train</th><th class="py-1.5 text-right">Held-out</th></tr>
+            </thead>
+            <tbody id="impRecentBody" class="divide-y divide-slate-800/60 text-slate-300">
+              <tr><td colspan="4" class="py-2 text-slate-500">Loading…</td></tr>
+            </tbody>
+          </table>
+          <div class="text-[10px] text-slate-500 mt-2.5">Promotion requires: held-out CI excludes baseline + beats the incumbent + survives the best-of-8 correction. Nothing promoted yet — every session so far was skipped at the data gate, by design.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Equity / Points Chart (2 Cols) -->
+      <div class="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-semibold text-white">Cumulative Net Performance (R-Multiple & Points)</h2>
+            <p class="text-xs text-slate-400">Cumulative portfolio return across all traded crypto assets (calculated on non-noise calls)</p>
+          </div>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">EQUITY CURVE</span>
+        </div>
+        <div class="h-64">
+          <canvas id="equityChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Win / Loss / Noise Distribution -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">Outcome Classification</h2>
+          <p class="text-xs text-slate-400 mb-4">Win vs Loss vs Noise-Filtered</p>
+          <div class="h-52 flex items-center justify-center">
+            <canvas id="distributionChart"></canvas>
+          </div>
+        </div>
+        <div class="border-t border-slate-800 pt-3 text-[11px] text-slate-400 flex justify-between font-mono">
+          <span>Wins: <strong id="distWinText" class="text-emerald-400">0</strong></span>
+          <span>Losses: <strong id="distLossText" class="text-rose-400">0</strong></span>
+          <span>Noise: <strong id="distNoiseText" class="text-slate-400">0</strong></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Predictions Audit Ledger -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+      <div class="p-4 sm:px-6 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">Cryptographic Prediction Ledger</h2>
+          <p class="text-xs text-slate-400">Append-only sequence. Predictions logged before outcome bar closes.</p>
+        </div>
+        <span class="text-xs font-mono text-emerald-400 flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> SHA256 CHAIN OK
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+            <tr>
+              <th class="py-3 px-4"># ID</th>
+              <th class="py-3 px-4">Symbol</th>
+              <th class="py-3 px-4">Created (WIB)</th>
+              <th class="py-3 px-4">Direction</th>
+              <th class="py-3 px-4">Confidence & Rationale</th>
+              <th class="py-3 px-4 text-right">Ref Price</th>
+              <th class="py-3 px-4 text-right text-emerald-400">TP Target</th>
+              <th class="py-3 px-4 text-right text-rose-400">SL Target</th>
+              <th class="py-3 px-4 text-right">Realized</th>
+              <th class="py-3 px-4 text-right">Move (pts)</th>
+              <th class="py-3 px-4 text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+            <tr>
+              <td colspan="11" class="text-center py-6 text-slate-500">Loading ledger data...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    </div><!-- End of viewTechnical -->
+

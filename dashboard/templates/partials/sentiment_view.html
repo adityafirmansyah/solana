@@ -1,0 +1,102 @@
+    <!-- VIEW 2: SENTIMENT & NEWS INTELLIGENCE -->
+    <div id="viewSentiment" class="space-y-6 hidden">
+      <!-- Info Banner -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 relative overflow-hidden shadow-xl">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-base font-bold text-white">Sentiment & Macro Intelligence Center</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">100% CITED CITATIONS ONLY</span>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed max-w-3xl">
+              Qualitative market research (Job #3). The agent ingests real-time macro & financial RSS feeds, extracts key price drivers, and emits a directional bias strictly bound to verified URL citations. Every claim is mechanically verified before recording. Kept completely separate from the technical model so neither contaminates the other.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>CADENCE: 4-HOUR CYCLES</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sentiment Health / KPI Strip -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+        <!-- Sentiment Hit Rate -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Sentiment Hit Rate</div>
+          <div class="my-2">
+            <span id="sentKpiHitRate" class="text-2xl font-bold font-mono text-white tabular">--%</span>
+            <span id="sentKpiEdgeBadge" class="text-[11px] ml-1.5 px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-400">Directional</span>
+          </div>
+          <div class="text-[11px] text-slate-500" id="sentKpiGradedCount">0 graded (non-noise)</div>
+        </div>
+
+        <!-- Total Sentiment Calls -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Total Sentiment Forecasts</div>
+          <div class="my-2 flex items-baseline gap-2">
+            <span id="sentKpiTotal" class="text-2xl font-bold font-mono text-white tabular">0</span>
+            <span id="sentKpiPending" class="text-[11px] text-amber-400 font-mono">0 pending</span>
+          </div>
+          <div class="text-[11px] text-slate-500">Append-Only Feed</div>
+        </div>
+
+        <!-- Citation Grounding Score -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Citation Gate Accuracy</div>
+          <div class="my-2">
+            <span class="text-2xl font-bold font-mono text-emerald-400 tabular">100%</span>
+          </div>
+          <div class="text-[11px] text-slate-500">Mechanical URL Verification</div>
+        </div>
+
+        <!-- Low-Conviction Abstained Ratio -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <div class="text-slate-400 text-xs font-medium">Abstained / Low Chop</div>
+          <div class="my-2">
+            <span id="sentKpiNoCalls" class="text-2xl font-bold font-mono text-slate-300 tabular">0</span>
+            <span class="text-xs text-slate-500">calls</span>
+          </div>
+          <div class="text-[11px] text-slate-500" id="sentKpiNoCallPct">0% abstained</div>
+        </div>
+      </div>
+
+      <!-- Sentiment Audit Ledger -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+        <div class="p-4 sm:px-6 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-white">Sentiment Narrative & Citation Ledger</h2>
+            <p class="text-xs text-slate-400">Append-only sequence of cited news predictions. Click any row to inspect claims and source URLs.</p>
+          </div>
+          <span class="text-xs font-mono text-emerald-400 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> CITATION GATE VERIFIED
+          </span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th class="py-3 px-4"># ID</th>
+                <th class="py-3 px-4">Created (WIB)</th>
+                <th class="py-3 px-4">Horizon</th>
+                <th class="py-3 px-4">Sentiment Bias</th>
+                <th class="py-3 px-4">Synthesized Narrative & Verified Claims</th>
+                <th class="py-3 px-4 text-right">Ref Price</th>
+                <th class="py-3 px-4 text-right">Realized</th>
+                <th class="py-3 px-4 text-right">Move (pts)</th>
+                <th class="py-3 px-4 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody id="sentimentTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+              <tr>
+                <td colspan="9" class="text-center py-6 text-slate-500">Loading sentiment records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- End of viewSentiment -->
+
+  </main>
+

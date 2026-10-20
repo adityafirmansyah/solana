@@ -4,32 +4,34 @@
 Executes simulated paper/testnet orders on Binance Futures Testnet (USDⓈ-M).
 Maintains isolated risk parameters:
   - ISOLATED margin type
-  - Conservative 5x leverage
+  - Conservative 5x–10x leverage
   - Pre-set Take-Profit (1.5x ATR) and Stop-Loss (1.0x ATR) bracket orders
   - Dead Man's Switch (countdownCancelAll)
   - Dedicated unchained SQLite log table: testnet_executions in solana.db
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import math
 import sqlite3
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fapi_client import (
+    BinanceFuturesApiClient,
+    SYMBOL_SPECS,
+    TESTNET_BASE_URL,
+    init_executions_db,
+    load_env,
+    round_step,
+    round_tick,
+)
 from settings import get_settings
 
 UTC = timezone.utc
 BASE_DIR = Path(__file__).resolve().parent
-ENV_PATH = BASE_DIR / ".env"
 DB_PATH = BASE_DIR / "solana.db"
 
 logger = logging.getLogger("solana_fapi_executor")
@@ -39,48 +41,13 @@ if not logger.handlers:
     logger.addHandler(h)
     logger.setLevel(logging.INFO)
 
-# Default Testnet URL
-TESTNET_BASE_URL = "https://testnet.binancefuture.com"
-
 # Virtual Capital & Safety Parameters
 VIRTUAL_CAPITAL_USD = 100.0          # Strict virtual bankroll: treat equity as $100.00
 TARGET_MARGIN_PCT = 0.04             # 4% target margin per trade (3-5% band = $3.00 - $5.00 margin)
-DEFAULT_LEVERAGE = 10                # 10x Isolated leverage (scaled up from 5x)
+DEFAULT_LEVERAGE = 10                # 10x Isolated leverage
 DEFAULT_NOTIONAL_USD = 40.0          # 4% of $100 * 10x = $40.00 notional (~$4.00 margin locked)
 MAX_CONCURRENT_POSITIONS = 2         # Max 2 concurrent positions (keeps total margin <= $8–$10, 8–10% equity)
 MAX_DAILY_LOSS_USD = 10.0            # Daily circuit breaker: 10% of $100 ($10.00 realized loss)
-
-# Symbol specifications on Binance Futures USDⓈ-M
-SYMBOL_SPECS = {
-    "SOLUSDT": {"step_size": 0.01, "price_tick": 0.01, "min_qty": 0.01, "min_notional": 5.0},
-    "AVAXUSDT": {"step_size": 1.0, "price_tick": 0.001, "min_qty": 1.0, "min_notional": 5.0},
-    "SUIUSDT": {"step_size": 0.1, "price_tick": 0.0001, "min_qty": 0.1, "min_notional": 5.0},
-    "NEARUSDT": {"step_size": 1.0, "price_tick": 0.001, "min_qty": 1.0, "min_notional": 5.0},
-    "DOGEUSDT": {"step_size": 1.0, "price_tick": 0.00001, "min_qty": 1.0, "min_notional": 5.0},
-    "LINKUSDT": {"step_size": 0.01, "price_tick": 0.001, "min_qty": 0.01, "min_notional": 5.0},
-}
-
-
-def load_env() -> dict[str, str]:
-    env_vars = {}
-    if ENV_PATH.exists():
-        for line in ENV_PATH.read_text().splitlines():
-            s = line.strip()
-            if s and not s.startswith("#") and "=" in s:
-                k, v = s.split("=", 1)
-                env_vars[k.strip()] = v.strip().strip('"').strip("'")
-    return env_vars
-
-
-def round_step(val: float, step: float) -> float:
-    precision = max(0, int(round(-math.log10(step))))
-    factor = 10 ** precision
-    return round(math.floor(val * factor + 1e-9) / factor, precision)
-
-
-def round_tick(val: float, tick: float) -> float:
-    precision = max(0, int(round(-math.log10(tick))))
-    return round(val, precision)
 
 
 class BinanceFuturesExecutor:
@@ -96,6 +63,7 @@ class BinanceFuturesExecutor:
         self.api_key = env.get("BINANCE_FUTURES_TESTNET_KEY", "")
         self.api_secret = env.get("BINANCE_FUTURES_TESTNET_SECRET", "")
         self.base_url = TESTNET_BASE_URL
+        self.client = BinanceFuturesApiClient(self.api_key, self.api_secret, self.base_url)
 
         # Load dynamic settings from state/settings.json
         s = get_settings()
@@ -138,75 +106,10 @@ class BinanceFuturesExecutor:
         return results
 
     def _init_db(self) -> None:
-        """Create unchained execution tracking table if it doesn't exist."""
-        with sqlite3.connect(DB_PATH) as con:
-            con.execute("""
-            CREATE TABLE IF NOT EXISTS testnet_executions (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                prediction_id    INTEGER,
-                symbol           TEXT NOT NULL,
-                direction        TEXT NOT NULL,
-                side             TEXT NOT NULL,
-                status           TEXT NOT NULL,
-                entry_order_id   TEXT,
-                entry_price      REAL,
-                entry_qty        REAL,
-                tp_order_id      TEXT,
-                tp_price         REAL,
-                sl_order_id      TEXT,
-                sl_price         REAL,
-                exit_order_id    TEXT,
-                exit_price       REAL,
-                exit_reason      TEXT,
-                pnl_usd          REAL,
-                pnl_pct          REAL,
-                leverage         INTEGER DEFAULT 10,
-                created_utc      TEXT NOT NULL,
-                closed_utc       TEXT,
-                raw_response     TEXT
-            );
-            """)
-            try:
-                con.execute("ALTER TABLE testnet_executions ADD COLUMN leverage INTEGER DEFAULT 10")
-            except Exception:
-                pass
-            con.commit()
+        init_executions_db()
 
     def _request(self, method: str, endpoint: str, params: dict[str, Any] | None = None) -> Any:
-        if not self.api_key or not self.api_secret:
-            raise ValueError("Binance Futures Testnet API key or secret missing from .env")
-
-        if params is None:
-            params = {}
-        payload = {k: v for k, v in params.items() if v is not None}
-        payload["timestamp"] = int(time.time() * 1000)
-
-        query_string = urllib.parse.urlencode(payload)
-        signature = hmac.new(
-            self.api_secret.encode("utf-8"),
-            query_string.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-
-        url = f"{self.base_url}{endpoint}?{query_string}&signature={signature}"
-        req = urllib.request.Request(
-            url,
-            headers={"X-MBX-APIKEY": self.api_key, "User-Agent": "Solana-LeadLag-Testnet/1.0"},
-            method=method
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8")
-            logger.error(f"HTTP {e.code} on {endpoint}: {err_body}")
-            try:
-                return json.loads(err_body)
-            except Exception:
-                return {"code": e.code, "msg": err_body}
-        except Exception as e:
-            logger.error(f"Network error on {endpoint}: {e}")
-            return {"code": -9999, "msg": str(e)}
+        return self.client.request(method, endpoint, params)
 
     def get_usdt_balance(self) -> float:
         """Fetch available USDT balance."""
@@ -336,7 +239,6 @@ class BinanceFuturesExecutor:
         avg_price = float(entry_res.get("avgPrice") or 0.0)
         if avg_price <= 0:
             try:
-                # Query order details to get real executed price
                 o_detail = self._request("GET", "/fapi/v1/order", {"symbol": symbol, "orderId": entry_order_id})
                 avg_price = float(o_detail.get("avgPrice") or 0.0)
             except Exception:
@@ -464,12 +366,10 @@ class BinanceFuturesExecutor:
                 logger.error(f"Error flattening position for {symbol}: {e}")
 
             # Calculate realized PnL
-            # Fetch actual realized PnL and commissions directly from Binance userTrades to account for real slippage & spread
             actual_realized_pnl = 0.0
             actual_commission = 0.0
             found_exchange_pnl = False
             try:
-                # Query userTrades for this symbol around trade lifetime
                 trade_created_ts = int(datetime.fromisoformat(row["created_utc"]).timestamp() * 1000) - 5000
                 recent_trades = self._request("GET", "/fapi/v1/userTrades", {
                     "symbol": symbol,
@@ -489,13 +389,11 @@ class BinanceFuturesExecutor:
 
             trade_leverage = row["leverage"] if ("leverage" in row.keys() and row["leverage"]) else self.leverage
             if found_exchange_pnl:
-                # Net realized PnL directly from Binance (accounting for spread, slippage & fee)
                 pnl_usd = actual_realized_pnl - actual_commission
                 notional_init = entry_price * entry_qty
                 pnl_pct = (pnl_usd / (notional_init / trade_leverage)) * 100 if notional_init > 0 else 0.0
                 logger.info(f"Reconciled Real PnL from Binance for {symbol} #{prediction_id}: Realized={actual_realized_pnl:+.4f}, Fee={actual_commission:.4f} -> Net=${pnl_usd:+.4f}")
             else:
-                # Fallback to tick difference if trade query returns nothing
                 if direction == "bullish":
                     pnl_usd = (realized_price - entry_price) * entry_qty
                     pnl_pct = (realized_price - entry_price) / entry_price * 100 * trade_leverage

@@ -264,7 +264,11 @@ def get_index_html() -> bytes | None:
         mtime = index_path.stat().st_mtime
         if _INDEX_HTML_CACHE is not None and mtime == _INDEX_HTML_MTIME:
             return _INDEX_HTML_CACHE
-        _INDEX_HTML_CACHE = index_path.read_bytes()
+        raw = index_path.read_text(encoding="utf-8")
+        modal_path = TEMPLATE_DIR / "partials" / "settings_modal.html"
+        if modal_path.exists():
+            raw = raw.replace("<!-- {{SETTINGS_MODAL}} -->", modal_path.read_text(encoding="utf-8"))
+        _INDEX_HTML_CACHE = raw.encode("utf-8")
         _INDEX_HTML_MTIME = mtime
         return _INDEX_HTML_CACHE
     except Exception as e:
@@ -288,6 +292,21 @@ class TestnetDashboardHandler(BaseHTTPRequestHandler):
                 return
             else:
                 self.send_error(404, "Template index.html not found")
+                return
+
+        if path.startswith("/static/"):
+            static_file = TEMPLATE_DIR / path.lstrip("/")
+            if static_file.exists() and static_file.is_file():
+                raw = static_file.read_bytes()
+                mime = "application/javascript" if path.endswith(".js") else "text/css"
+                self.send_response(200)
+                self.send_header("Content-Type", f"{mime}; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            else:
+                self.send_error(404, "Static file not found")
                 return
 
         if path == "/api/stats":

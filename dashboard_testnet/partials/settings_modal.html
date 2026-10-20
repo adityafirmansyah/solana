@@ -1,0 +1,133 @@
+  <!-- Settings & Risk Controls Modal -->
+  <div id="settingsModal" onclick="if(event.target===this)closeSettingsModal()" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-xl rounded-2xl shadow-2xl border border-slate-700/80 bg-[#0e1524] text-slate-100 overflow-hidden transform transition-all">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-border flex items-center justify-between bg-slate-900/80">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-sm">
+            ⚙️
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white tracking-tight">Bot Sizing & Risk Settings</h3>
+            <p class="text-[11px] text-slate-400">Configure leverage, margin per trade, and capital limits</p>
+          </div>
+        </div>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="settingsForm" onsubmit="saveSettingsForm(event)" class="p-6 space-y-5">
+        <!-- Notification / Toast within modal -->
+        <div id="settingsNotice" class="hidden p-3 rounded-lg text-xs font-mono border"></div>
+
+        <!-- 1. Leverage Setting -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-semibold text-slate-200">Leverage (ISOLATED)</label>
+            <span class="text-xs font-mono font-bold text-amber-400" id="leverageDisplay">10x</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <input type="range" id="inputLeverageSlider" min="1" max="50" step="1" value="10" 
+                   oninput="onLeverageChange(this.value)" class="flex-1 accent-amber-500 cursor-pointer">
+            <input type="number" id="inputLeverageNumber" min="1" max="50" step="1" value="10" 
+                   oninput="onLeverageChange(this.value)" class="w-16 px-2.5 py-1 text-center text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <!-- Quick Presets -->
+          <div class="flex items-center gap-1.5 mt-2">
+            <span class="text-[10px] text-slate-400 mr-1">Presets:</span>
+            <button type="button" onclick="onLeverageChange(3)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">3x</button>
+            <button type="button" onclick="onLeverageChange(5)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">5x</button>
+            <button type="button" onclick="onLeverageChange(10)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-amber-400 border border-amber-500/30">10x</button>
+            <button type="button" onclick="onLeverageChange(15)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">15x</button>
+            <button type="button" onclick="onLeverageChange(20)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300">20x</button>
+          </div>
+          <p class="text-[10px] text-slate-500 mt-1">Changes are automatically submitted to Binance Futures Testnet for all active follower coins.</p>
+        </div>
+
+        <!-- 2. Margin & Sizing Row -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Margin per Trade ($ USD)</label>
+            <div class="relative">
+              <span class="absolute left-3 top-2 text-xs text-slate-500">$</span>
+              <input type="number" id="inputMarginPerTrade" min="0.5" max="1000" step="0.5" value="4.00" 
+                     oninput="onMarginChange(this.value)"
+                     class="w-full pl-7 pr-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+            </div>
+            <span id="marginPctHint" class="text-[10px] text-emerald-400 mt-1 block font-mono">4.0% of $100 Bankroll</span>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Target Notional Size ($ USD)</label>
+            <div class="relative">
+              <span class="absolute left-3 top-2 text-xs text-slate-500">$</span>
+              <input type="number" id="inputTargetNotional" min="5.0" max="50000" step="1.0" value="40.00" 
+                     oninput="onNotionalChange(this.value)"
+                     class="w-full pl-7 pr-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 focus:outline-none focus:border-cyan-500">
+            </div>
+            <span class="text-[10px] text-slate-400 mt-1 block font-mono">Min $5.00 (Binance Filter)</span>
+          </div>
+        </div>
+
+        <!-- 3. Risk Safeguards -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Max Concurrent Positions</label>
+            <input type="number" id="inputMaxConcurrent" min="1" max="10" step="1" value="2" 
+                   oninput="recalcMatrix()"
+                   class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+            <span class="text-[10px] text-slate-500 mt-1 block">Max simultaneous active trades</span>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Daily Max Loss ($ USD)</label>
+            <input type="number" id="inputMaxDailyLoss" min="1" max="1000" step="1" value="10.00" 
+                   class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-rose-400 focus:outline-none focus:border-rose-500">
+            <span class="text-[10px] text-slate-500 mt-1 block">Circuit breaker stop threshold</span>
+          </div>
+        </div>
+
+        <!-- 4. Dynamic Risk Matrix Card -->
+        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs font-mono">
+          <div class="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800/80 pb-1.5">
+            <span class="font-bold text-slate-300">Live Risk Calculation Matrix</span>
+            <span id="matrixStatusBadge" class="text-emerald-400 font-semibold">✓ SAFE BOUNDS</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div>
+              <span class="text-slate-500">Per-Trade Notional:</span>
+              <span id="matrixTradeNotional" class="text-cyan-400 font-bold ml-1">$40.00</span>
+            </div>
+            <div>
+              <span class="text-slate-500">Per-Trade Margin:</span>
+              <span id="matrixTradeMargin" class="text-amber-400 font-bold ml-1">$4.00</span>
+            </div>
+            <div>
+              <span class="text-slate-500">Max Portfolio Exposure:</span>
+              <span id="matrixMaxExposure" class="text-slate-300 font-bold ml-1">$80.00</span>
+            </div>
+            <div>
+              <span class="text-slate-500">Max Margin Locked:</span>
+              <span id="matrixMaxMargin" class="text-purple-400 font-bold ml-1">$8.00 (8.0%)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+          <button type="button" onclick="closeSettingsModal()" 
+                  class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition">
+            Cancel
+          </button>
+          <button type="submit" id="btnSaveSettings"
+                  class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+            <svg id="saveSpinner" class="w-3.5 h-3.5 animate-spin hidden" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span id="saveBtnText">Save & Sync to Binance</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

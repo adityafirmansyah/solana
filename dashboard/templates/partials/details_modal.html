@@ -1,0 +1,129 @@
+  <!-- Details Modal -->
+  <div id="detailsModal" onclick="handleBackdropClick(event)" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div id="detailsModalCard" class="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+        <div class="flex items-center gap-3">
+          <div id="modalDirIcon" class="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm"></div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="modalTitle" class="font-bold text-white text-base">Prediction Details</span>
+              <span id="modalHorizonBadge" class="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-400">1H</span>
+            </div>
+            <div id="modalTimestamp" class="text-xs text-slate-400 font-mono">--</div>
+          </div>
+        </div>
+        <button onclick="closeDetailsModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 overflow-y-auto space-y-6 text-sm">
+        
+        <!-- Summary Box -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2">
+          <div class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Core Rationale & Voting Summary</div>
+          <p id="modalRationaleText" class="text-slate-200 leading-relaxed font-sans text-sm"></p>
+        </div>
+
+        <!-- Key Metrics Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Reference Price</div>
+            <div id="modalRefPrice" class="text-white font-bold text-base mt-1">$0.00</div>
+          </div>
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Volatility Filter</div>
+            <div id="modalNoiseThr" class="text-slate-300 font-bold text-base mt-1">$0.00</div>
+          </div>
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Realized Price</div>
+            <div id="modalRealizedPrice" class="text-white font-bold text-base mt-1">—</div>
+          </div>
+          <div class="bg-slate-950/40 border border-slate-800/80 rounded-lg p-3">
+            <div class="text-slate-400 text-[11px]">Outcome Result</div>
+            <div id="modalOutcomeStatus" class="font-bold text-base mt-1">Pending</div>
+          </div>
+        </div>
+
+        <!-- Trade Targets (TP / SL) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+          <div class="bg-emerald-950/20 border border-emerald-500/20 rounded-lg p-3">
+            <div class="text-emerald-400 text-[11px] font-semibold flex items-center justify-between">
+              <span id="modalTpLabel">Target (Take Profit · 1.5× ATR)</span>
+              <span id="modalTpPoints" class="text-[10px] font-mono">+0.00 pts</span>
+            </div>
+            <div id="modalTpPrice" class="text-emerald-300 font-bold text-base mt-1">$0.00</div>
+          </div>
+          <div class="bg-rose-950/20 border border-rose-500/20 rounded-lg p-3">
+            <div class="text-rose-400 text-[11px] font-semibold flex items-center justify-between">
+              <span id="modalSlLabel">Stop Loss (1.0× ATR)</span>
+              <span id="modalSlPoints" class="text-[10px] font-mono">-0.00 pts</span>
+            </div>
+            <div id="modalSlPrice" class="text-rose-300 font-bold text-base mt-1">$0.00</div>
+          </div>
+        </div>
+
+        <!-- Target Reached Status Banner -->
+        <div id="modalTargetReachedBanner" class="p-3 rounded-xl border text-xs font-mono flex items-center justify-between transition-colors">
+          <div class="flex items-center gap-2">
+            <span id="modalTargetReachedIcon" class="text-base">🎯</span>
+            <span id="modalTargetReachedText" class="font-medium text-slate-200">Evaluating target resolution...</span>
+          </div>
+          <span id="modalTargetReachedSub" class="text-[11px] text-slate-400 font-mono"></span>
+        </div>
+
+        <!-- Indicator Scorecard Breakdown (Technical Only) -->
+        <div id="modalTechnicalSection" class="space-y-6">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Indicator Jury Voting Scorecard</span>
+              <span id="modalTotalScoreBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">Score: +0.00</span>
+            </div>
+            <div id="modalScorecardContainer" class="space-y-2 font-sans text-xs">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Technical Parameters Breakdown -->
+          <div class="space-y-3">
+            <div class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Technical Confluence Factors</div>
+            <div id="modalFeaturesGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono">
+              <!-- Injected via JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Sentiment Citations Breakdown (Sentiment Only) -->
+        <div id="modalSentimentSection" class="space-y-4 hidden">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-slate-400 uppercase font-mono tracking-wider font-semibold">Verified Article Citations & Claims</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">✓ 100% CITED</span>
+          </div>
+          <div id="modalClaimsContainer" class="space-y-2.5 font-sans text-xs">
+            <!-- Dynamically populated with claims & URLs -->
+          </div>
+        </div>
+
+        <!-- Market Sources Context -->
+        <div id="modalSourcesSection" class="space-y-2 text-xs">
+          <div class="text-slate-400 uppercase font-mono tracking-wider font-semibold text-[11px]">Market State at Decision Time</div>
+          <div id="modalSourcesText" class="text-slate-400 bg-slate-950/30 p-3 rounded-lg border border-slate-800/60 font-mono text-[11px]"></div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs font-mono text-slate-500">
+        <span>Append-only cryptographic record</span>
+        <button onclick="closeDetailsModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors">Close</button>
+      </div>
+
+    </div>
+  </div>
+
+  <footer class="max-w-7xl mx-auto px-6 py-8 text-center text-xs text-slate-500 border-t border-slate-800/80 mt-12">
+    <div>Solana Quantitative Trading Research — Operating autonomously under Hermes Orchestrator.</div>
+    <div class="text-[11px] text-slate-600 mt-1">Learning instrument and reference only. Explicitly NOT financial advice.</div>
+  </footer>
+
