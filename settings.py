@@ -72,11 +72,12 @@ def get_settings() -> dict[str, Any]:
 def validate_settings(data: dict[str, Any]) -> tuple[bool, str | dict[str, Any]]:
     """Validate settings payload. Returns (is_valid, error_msg_or_sanitized_dict)."""
     try:
-        leverage = int(data.get("leverage", 10))
+        current = get_settings()
+        leverage = int(data.get("leverage", current.get("leverage", 10)))
         if leverage < 1 or leverage > 50:
             return False, "Leverage must be between 1x and 50x."
 
-        virtual_capital = float(data.get("virtual_capital", 100.0))
+        virtual_capital = float(data.get("virtual_capital", current.get("virtual_capital", 100.0)))
         if virtual_capital < 10.0 or virtual_capital > 100000.0:
             return False, "Virtual capital must be between $10 and $100,000."
 

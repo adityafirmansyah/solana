@@ -508,7 +508,6 @@
 
       document.getElementById('inputMarginPerTrade').value = (s.margin_per_trade_usd || 4.0).toFixed(2);
       document.getElementById('inputTargetNotional').value = (s.target_notional_usd || 40.0).toFixed(2);
-      document.getElementById('inputVirtualCapital').value = (s.virtual_capital || 100.0).toFixed(2);
       document.getElementById('inputMaxConcurrent').value = s.max_concurrent || 2;
       document.getElementById('inputMaxDailyLoss').value = (s.max_daily_loss || 10.0).toFixed(2);
 
@@ -547,7 +546,7 @@
       const lev = parseInt(document.getElementById('inputLeverageNumber').value) || 10;
       const margin = parseFloat(document.getElementById('inputMarginPerTrade').value) || 4.0;
       const notional = parseFloat(document.getElementById('inputTargetNotional').value) || (margin * lev);
-      const capital = parseFloat(document.getElementById('inputVirtualCapital').value) || 100.0;
+      const capital = (currentSettings && currentSettings.virtual_capital) || 100.0;
       const maxConc = parseInt(document.getElementById('inputMaxConcurrent').value) || 2;
 
       const marginPct = ((margin / capital) * 100).toFixed(1);
@@ -609,7 +608,6 @@
         leverage: parseInt(document.getElementById('inputLeverageNumber').value),
         margin_per_trade_usd: parseFloat(document.getElementById('inputMarginPerTrade').value),
         target_notional_usd: parseFloat(document.getElementById('inputTargetNotional').value),
-        virtual_capital: parseFloat(document.getElementById('inputVirtualCapital').value),
         max_concurrent: parseInt(document.getElementById('inputMaxConcurrent').value),
         max_daily_loss: parseFloat(document.getElementById('inputMaxDailyLoss').value),
       };
@@ -713,24 +711,20 @@
           </div>
         </div>
 
-        <!-- 3. Capital & Risk Safeguards -->
-        <div class="grid grid-cols-3 gap-3">
+        <!-- 3. Risk Safeguards -->
+        <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-semibold text-slate-200 mb-1">Virtual Bankroll ($)</label>
-            <input type="number" id="inputVirtualCapital" min="10" max="100000" step="10" value="100.00" 
-                   oninput="recalcMatrix()"
-                   class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-slate-200 mb-1">Max Concurrent</label>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Max Concurrent Positions</label>
             <input type="number" id="inputMaxConcurrent" min="1" max="10" step="1" value="2" 
                    oninput="recalcMatrix()"
                    class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+            <span class="text-[10px] text-slate-500 mt-1 block">Max simultaneous active trades</span>
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-200 mb-1">Daily Max Loss ($)</label>
+            <label class="block text-xs font-semibold text-slate-200 mb-1">Daily Max Loss ($ USD)</label>
             <input type="number" id="inputMaxDailyLoss" min="1" max="1000" step="1" value="10.00" 
                    class="w-full px-3 py-1.5 text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg text-rose-400 focus:outline-none focus:border-rose-500">
+            <span class="text-[10px] text-slate-500 mt-1 block">Circuit breaker stop threshold</span>
           </div>
         </div>
 
