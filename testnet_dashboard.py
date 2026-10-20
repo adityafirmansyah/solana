@@ -168,15 +168,16 @@ def get_open_positions() -> list[dict]:
             sl_px = float(r["sl_price"]) if r["sl_price"] else 0.0
             mark_px = tickers.get(sym, entry_px)
 
+            pos_leverage = int(r["leverage"]) if ("leverage" in r.keys() and r["leverage"]) else leverage
             notional = round(entry_px * qty, 2)
-            margin = round(notional / leverage, 2)
+            margin = round(notional / pos_leverage, 2)
 
             if direction == "bullish":
                 pnl_usd = (mark_px - entry_px) * qty
-                pnl_pct = (mark_px - entry_px) / entry_px * 100 * leverage
+                pnl_pct = (mark_px - entry_px) / entry_px * 100 * pos_leverage
             else:
                 pnl_usd = (entry_px - mark_px) * qty
-                pnl_pct = (entry_px - mark_px) / entry_px * 100 * leverage
+                pnl_pct = (entry_px - mark_px) / entry_px * 100 * pos_leverage
 
             res.append({
                 "id": r["id"],
@@ -188,6 +189,7 @@ def get_open_positions() -> list[dict]:
                 "entry_qty": qty,
                 "notional_usd": notional,
                 "margin_used": margin,
+                "leverage": pos_leverage,
                 "tp_price": tp_px,
                 "sl_price": sl_px,
                 "unrealized_pnl_usd": round(pnl_usd, 4),
@@ -200,6 +202,8 @@ def get_open_positions() -> list[dict]:
 
 
 def get_history() -> list[dict]:
+    s = get_settings()
+    leverage = int(s.get("leverage", 10))
     con = get_db()
     try:
         rows = con.execute("""
@@ -227,12 +231,14 @@ def get_history() -> list[dict]:
                     else:
                         duration_str = f"{secs // 3600}h {(secs % 3600) // 60}m"
 
+            pos_leverage = int(r["leverage"]) if ("leverage" in r.keys() and r["leverage"]) else leverage
             res.append({
                 "id": r["id"],
                 "prediction_id": r["prediction_id"],
                 "symbol": r["symbol"],
                 "direction": r["direction"],
                 "side": r["side"],
+                "leverage": pos_leverage,
                 "entry_price": float(r["entry_price"]),
                 "exit_price": float(r["exit_price"]) if r["exit_price"] else 0.0,
                 "exit_reason": r["exit_reason"],

@@ -160,11 +160,16 @@ class BinanceFuturesExecutor:
                 exit_reason      TEXT,
                 pnl_usd          REAL,
                 pnl_pct          REAL,
+                leverage         INTEGER DEFAULT 10,
                 created_utc      TEXT NOT NULL,
                 closed_utc       TEXT,
                 raw_response     TEXT
             );
             """)
+            try:
+                con.execute("ALTER TABLE testnet_executions ADD COLUMN leverage INTEGER DEFAULT 10")
+            except Exception:
+                pass
             con.commit()
 
     def _request(self, method: str, endpoint: str, params: dict[str, Any] | None = None) -> Any:
@@ -380,13 +385,13 @@ class BinanceFuturesExecutor:
                 prediction_id, symbol, direction, side, status,
                 entry_order_id, entry_price, entry_qty,
                 tp_order_id, tp_price, sl_order_id, sl_price,
-                created_utc, raw_response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                leverage, created_utc, raw_response
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 prediction_id, symbol, direction, entry_side, "OPEN",
                 entry_order_id, avg_price, qty,
                 tp_order_id, tp_tick, sl_order_id, sl_tick,
-                now_utc, json.dumps({"entry": entry_res, "tp": tp_res, "sl": sl_res})
+                self.leverage, now_utc, json.dumps({"entry": entry_res, "tp": tp_res, "sl": sl_res})
             ))
             exec_id = cur.lastrowid
             con.commit()
@@ -482,20 +487,21 @@ class BinanceFuturesExecutor:
             except Exception as e:
                 logger.warning(f"Failed to fetch exchange userTrades for PnL reconciliation: {e}")
 
+            trade_leverage = row["leverage"] if ("leverage" in row.keys() and row["leverage"]) else self.leverage
             if found_exchange_pnl:
                 # Net realized PnL directly from Binance (accounting for spread, slippage & fee)
                 pnl_usd = actual_realized_pnl - actual_commission
                 notional_init = entry_price * entry_qty
-                pnl_pct = (pnl_usd / (notional_init / self.leverage)) * 100 if notional_init > 0 else 0.0
+                pnl_pct = (pnl_usd / (notional_init / trade_leverage)) * 100 if notional_init > 0 else 0.0
                 logger.info(f"Reconciled Real PnL from Binance for {symbol} #{prediction_id}: Realized={actual_realized_pnl:+.4f}, Fee={actual_commission:.4f} -> Net=${pnl_usd:+.4f}")
             else:
                 # Fallback to tick difference if trade query returns nothing
                 if direction == "bullish":
                     pnl_usd = (realized_price - entry_price) * entry_qty
-                    pnl_pct = (realized_price - entry_price) / entry_price * 100 * self.leverage
+                    pnl_pct = (realized_price - entry_price) / entry_price * 100 * trade_leverage
                 else:
                     pnl_usd = (entry_price - realized_price) * entry_qty
-                    pnl_pct = (entry_price - realized_price) / entry_price * 100 * self.leverage
+                    pnl_pct = (entry_price - realized_price) / entry_price * 100 * trade_leverage
 
             now_utc = datetime.now(UTC).isoformat(timespec="seconds")
             con.execute("""

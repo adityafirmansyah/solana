@@ -48,7 +48,7 @@
             BINANCE USDⓈ-M
           </span>
         </div>
-        <p class="text-xs text-slate-400">Strict $100 Bankroll · 3–5% Margin ($3.50–$5.00 / pos) · 10x Isolated · Binance Algo Orders</p>
+        <p class="text-xs text-slate-400">Strict $100 Bankroll · <span id="headerMarginText">3–5% Margin</span> · <span id="headerLeverageText" class="text-amber-400 font-semibold">10x Isolated</span> · Binance Algo Orders</p>
       </div>
     </div>
 
@@ -353,7 +353,11 @@
       document.getElementById('kpiWinRate').innerText = wr + (total > 0 ? '%' : '');
       document.getElementById('kpiTradeCount').innerText = wins + ' Wins / ' + total + ' Trades';
 
-      if (data.target_margin_pct) document.getElementById('ruleMarginPct').innerText = data.target_margin_pct;
+      if (data.target_margin_pct) {
+        document.getElementById('ruleMarginPct').innerText = data.target_margin_pct;
+        const hMarg = document.getElementById('headerMarginText');
+        if (hMarg) hMarg.innerText = data.target_margin_pct + ' Margin';
+      }
       if (data.target_margin_usd) document.getElementById('ruleMarginUsd').innerText = '(' + data.target_margin_usd + ')';
       if (data.target_notional_usd) document.getElementById('ruleNotional').innerText = '~$' + Number(data.target_notional_usd).toFixed(2) + ' USD';
       if (data.circuit_breaker_limit) document.getElementById('ruleCircuit').innerText = '$' + Number(data.circuit_breaker_limit).toFixed(2) + ' (10%)';
@@ -361,7 +365,11 @@
       if (data.settings) {
         const s = data.settings;
         if (s.virtual_capital) document.getElementById('ruleBankroll').innerText = '$' + Number(s.virtual_capital).toFixed(2) + ' USD';
-        if (s.leverage) document.getElementById('ruleLeverage').innerText = s.leverage + 'x ISOLATED';
+        if (s.leverage) {
+          document.getElementById('ruleLeverage').innerText = s.leverage + 'x ISOLATED';
+          const hLev = document.getElementById('headerLeverageText');
+          if (hLev) hLev.innerText = s.leverage + 'x Isolated';
+        }
         if (s.max_concurrent) {
           document.getElementById('ruleMaxOpen').innerText = s.max_concurrent + ' Positions';
           const maxMarg = (s.margin_per_trade_usd || 4.0) * s.max_concurrent;
@@ -397,13 +405,14 @@
         const sideBadge = isLong 
           ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">LONG</span>'
           : '<span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">SHORT</span>';
+        const levBadge = (pos.leverage || 10) + 'x Iso';
 
         return `
           <tr class="hover:bg-slate-800/40 transition">
             <td class="py-3 px-4 font-bold text-white flex items-center gap-1.5">
               <span>${pos.symbol}</span>
             </td>
-            <td class="py-3 px-4">${sideBadge} <span class="text-slate-400 text-[10px]">10x Iso</span></td>
+            <td class="py-3 px-4">${sideBadge} <span class="text-amber-400/90 font-mono text-[10px] font-semibold">${levBadge}</span></td>
             <td class="py-3 px-4 text-slate-300">$${pos.entry_price.toFixed(4)}</td>
             <td class="py-3 px-4 text-white font-bold">$${(pos.mark_price || pos.entry_price).toFixed(4)}</td>
             <td class="py-3 px-4 text-slate-300">${pos.entry_qty} ($${pos.notional_usd.toFixed(2)})</td>
