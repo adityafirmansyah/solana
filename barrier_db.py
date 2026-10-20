@@ -33,7 +33,7 @@ if not logger.handlers:
     logger.addHandler(h)
     logger.setLevel(logging.INFO)
 
-MAX_HOLDING_SECS = 7200  # 2 Hours Time-stop
+MAX_HOLDING_SECS = 360.0  # 6 minutes max holding time-stop for micro lead-lag (was 7200s / 2h)
 
 # Try loading FapiExecutor
 try:
@@ -111,6 +111,31 @@ def load_active_trades_from_db() -> dict[int, dict]:
         return active
     finally:
         con.close()
+
+
+def audit_exchange_exit(pid: int, symbol: str, default_sl: float, default_tp: float) -> tuple[str, float]:
+    """Check Binance algo orders to determine if SL or TP triggered natively on exchange."""
+    if not FAPI_EXECUTOR:
+        return "sl_hit", default_sl
+    try:
+        import sqlite3
+        with sqlite3.connect(DB_PATH) as con:
+            row = con.execute("SELECT tp_order_id, sl_order_id FROM testnet_executions WHERE prediction_id = ?", (pid,)).fetchone()
+            if row:
+                tp_id, sl_id = row[0], row[1]
+                if sl_id:
+                    sl_res = FAPI_EXECUTOR._request("GET", "/fapi/v1/algoOrder", {"symbol": symbol, "algoId": sl_id})
+                    if isinstance(sl_res, dict) and sl_res.get("algoStatus") == "FINISHED":
+                        px = float(sl_res.get("actualPrice") or default_sl)
+                        return "sl_hit", px
+                if tp_id:
+                    tp_res = FAPI_EXECUTOR._request("GET", "/fapi/v1/algoOrder", {"symbol": symbol, "algoId": tp_id})
+                    if isinstance(tp_res, dict) and tp_res.get("algoStatus") == "FINISHED":
+                        px = float(tp_res.get("actualPrice") or default_tp)
+                        return "tp_hit", px
+    except Exception as e:
+        logger.warning(f"Failed to audit exchange algo orders for #{pid}: {e}")
+    return "sl_hit", default_sl
 
 
 def sync_record_outcome(trade: dict, exit_reason: str, trigger_price: float, trigger_time: datetime) -> bool:

@@ -36,6 +36,7 @@ from barrier_db import (
     load_active_trades_from_db,
     sync_record_outcome,
     sync_record_lead_lag_prediction,
+    audit_exchange_exit,
     FAPI_EXECUTOR,
     MAX_HOLDING_SECS,
     DB_PATH,
@@ -310,9 +311,29 @@ class MultiCoinLeadLagWatcher:
                     active_symbols: set[str] = {str(t["symbol"]) for t in self.active_trades.values() if t.get("symbol")}
                     for sym in active_symbols:
                         await asyncio.to_thread(FAPI_EXECUTOR.dead_man_heartbeat, sym, 60000)
+
+                    # Exchange position audit: if position on exchange is already flat (e.g. native SL/TP wick)
+                    positions = await asyncio.to_thread(FAPI_EXECUTOR._request, "GET", "/fapi/v2/positionRisk")
+                    if isinstance(positions, list):
+                        pos_dict = {p.get("symbol"): float(p.get("positionAmt", 0.0)) for p in positions}
+                        concluded = []
+                        now = datetime.now(UTC)
+                        for pid, trade in list(self.active_trades.items()):
+                            sym = str(trade.get("symbol", ""))
+                            if sym and sym in pos_dict and pos_dict[sym] == 0.0:
+                                exit_reason, exit_px = await asyncio.to_thread(
+                                    audit_exchange_exit, pid, sym, float(trade["sl_price"]), float(trade["tp_price"])
+                                )
+                                logger.warning(f"Exchange position for {sym} #{pid} is already FLAT ({exit_reason} @ {exit_px}). Resolving...")
+                                concluded.append((trade, exit_reason, exit_px))
+
+                        for trade, exit_reason, exit_px in concluded:
+                            pid = trade["id"]
+                            self.active_trades.pop(pid, None)
+                            await asyncio.to_thread(sync_record_outcome, trade, exit_reason, exit_px, now)
             except Exception as e:
                 logger.debug(f"Heartbeat tick error: {e}")
-            await asyncio.sleep(20.0)
+            await asyncio.sleep(15.0)
 
     def stop(self):
         self.running = False

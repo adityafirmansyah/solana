@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""Binance Futures Testnet Executor for Solana Multi-Coin Lead-Lag Engine.
-
-Executes simulated paper/testnet orders on Binance Futures Testnet (USDⓈ-M).
-Maintains isolated risk parameters:
-  - ISOLATED margin type
-  - Conservative 5x–10x leverage
-  - Pre-set Take-Profit (1.5x ATR) and Stop-Loss (1.0x ATR) bracket orders
-  - Dead Man's Switch (countdownCancelAll)
-  - Dedicated unchained SQLite log table: testnet_executions in solana.db
-"""
+"""Binance Futures Testnet Executor for Solana Multi-Coin Lead-Lag Engine."""
 from __future__ import annotations
 
 import json
@@ -400,6 +391,10 @@ class BinanceFuturesExecutor:
                 else:
                     pnl_usd = (entry_price - realized_price) * entry_qty
                     pnl_pct = (entry_price - realized_price) / entry_price * 100 * trade_leverage
+
+            if found_exchange_pnl and actual_realized_pnl < 0 and exit_reason == "tp_hit":
+                logger.warning(f"Overriding exit_reason 'tp_hit' to 'sl_hit' because actual exchange PnL is negative ({actual_realized_pnl})")
+                exit_reason = "sl_hit"
 
             now_utc = datetime.now(UTC).isoformat(timespec="seconds")
             con.execute("""

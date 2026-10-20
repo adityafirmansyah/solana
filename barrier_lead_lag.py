@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC, datetime
 from enum import IntEnum
 from typing import Any
 
@@ -25,6 +26,7 @@ MAX_CONCURRENT_SAME_DIR_TRADES = 1    # Max 1 active trade in same direction
 EXHAUSTION_BTC_60S_MOVE_PCT = 0.60   # Exhaustion guard threshold
 FOLLOWER_LAG_MAX_PCT = 0.04          # Strict lag ceiling
 MAX_SPREAD_PCT = 0.08                # Max allowable book spread (0.08%)
+MAX_HOLDING_SECS = 360.0             # 6 minutes max holding time-stop for micro lead-lag
 
 
 class EngineState(IntEnum):
@@ -62,6 +64,14 @@ def evaluate_1s_kline(trade: dict, k: dict) -> tuple[str | None, float]:
         return "sl_hit", sl
     elif direction == "bearish" and high >= sl:
         return "sl_hit", sl
+
+    # 3. Time-Stop Check (6 minutes)
+    try:
+        created_dt = datetime.fromisoformat(trade["created_utc"])
+        if (datetime.now(UTC) - created_dt).total_seconds() >= MAX_HOLDING_SECS:
+            return "time_stop", close
+    except Exception:
+        pass
 
     return None, close
 
