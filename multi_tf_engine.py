@@ -182,14 +182,14 @@ class MultiTimeframeEngine:
         # Terminal executions cool down from closure; unresolved/failed executions
         # cool down from prediction creation. Invalid timestamps fail closed.
         timestamp = row[5] if status and status.upper() in {"CLOSED", "CANCELLED", "REJECTED"} else row[1]
-        if row[2] != direction:
-            return False
         try:
             created = datetime.fromisoformat(timestamp).timestamp()
         except (TypeError, ValueError, OverflowError):
             return False
         now_ts = time.time() if now_ts is None else now_ts
-        return 0 <= now_ts - created and now_ts - created >= cooldown_secs
+        if now_ts < created or (now_ts - created) < cooldown_secs:
+            return False
+        return True
 
     def load_active_trades(self) -> dict[int, dict]:
         """Load open positions from active execution table & predictions,
@@ -834,7 +834,7 @@ class MultiTimeframeEngine:
         # Rule 2: Per-symbol exit cooldown & Rule 4: last loss tracking
         now_ts = now_utc_dt.timestamp()
         self.symbol_cooldowns[symbol] = now_ts
-        if not is_win or exit_reason == "sl_hit":
+        if not is_win:
             self.last_loss_time = now_ts
 
         con = ledger.connect()

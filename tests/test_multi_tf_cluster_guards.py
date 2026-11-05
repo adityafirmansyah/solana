@@ -352,6 +352,28 @@ class TestGlobalClusterCooldown(unittest.TestCase):
         self.assertTrue(now_before <= self.engine.symbol_cooldowns["SOLUSDT"] <= now_after)
         self.assertTrue(now_before <= self.engine.last_loss_time <= now_after)
 
+    def test_profitable_trailing_sl_does_not_update_loss_time(self):
+        """A trade with is_win=True and exit_reason='sl_hit' (ratcheted SL in profit) must NOT update last_loss_time."""
+        self.engine.active_trades[124] = {
+            "symbol": "SOLUSDT",
+            "direction": "bearish",
+            "entry_price": 100.0,
+        }
+        self.engine.symbol_cooldowns.clear()
+        self.engine.last_loss_time = 0.0
+
+        with patch.object(self.engine.executor, "close_position_on_exit"), \
+             patch("multi_tf_engine.ledger.record_outcome"), \
+             patch("multi_tf_engine.post_persona_discord"):
+            now_before = time.time()
+            # Bearish trade exiting at 95.0 is profitable (move = 100 - 95 = +5.0 > 0)
+            asyncio.run(self.engine.close_trade(124, "SOLUSDT", "sl_hit", 95.0))
+            now_after = time.time()
+
+        self.assertIn("SOLUSDT", self.engine.symbol_cooldowns)
+        self.assertTrue(now_before <= self.engine.symbol_cooldowns["SOLUSDT"] <= now_after)
+        self.assertEqual(self.engine.last_loss_time, 0.0)
+
     def test_load_active_trades_populates_last_global_entry_from_db(self):
         """Booting engine must populate last_global_entry_time from the latest execution."""
         now_dt = datetime.now(timezone.utc)

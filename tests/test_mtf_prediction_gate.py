@@ -44,6 +44,12 @@ class TestMtfPredictionGate(unittest.TestCase):
             self.con, "testnet_executions", "SOLUSDT", "bullish", 99, 97, 103,
             now_ts=100, cooldown_secs=900))
 
+    def test_direction_change_allowed_after_cooldown_expires(self):
+        self.con.execute("INSERT INTO predictions (id, symbol, horizon, direction, features_json, inputs_json) VALUES (1, 'SOLUSDT', 'multi_tf', 'bearish', '{}', '{}')")
+        self.assertTrue(MultiTimeframeEngine.setup_is_eligible(
+            self.con, "testnet_executions", "SOLUSDT", "bullish", 99, 97, 103,
+            now_ts=4070909700, cooldown_secs=900))
+
     def test_closed_recent_is_blocked_until_closed_cooldown_expires(self):
         self.con.execute("INSERT INTO predictions (id, symbol, horizon, direction, features_json, inputs_json, created_utc) VALUES (1, 'SOLUSDT', 'multi_tf', 'bearish', '{}', '{}', '2025-01-01T00:00:00+00:00')")
         self.con.execute("INSERT INTO testnet_executions VALUES (1, 'SOLUSDT', 'CLOSED', '2025-01-01T00:10:00+00:00')")
