@@ -1,3 +1,6 @@
 # Standalone frontend dashboards & execution engines
 dashboard_testnet/index.html
 fapi_executor.py
+multi_tf_engine.py
+multi_tf_strategy.py
+tests/*
